@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { byCoord, endpointById, GALAXY_SIZE, gates, gatesByCoord, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
+import { byCoord, endpointById, GALAXY_SIZE, gates, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
 import type { AppState, MapLocation, Region, RouteStep, SectorName } from "../types";
 import { chamferPoints, clamp, fitText } from "./geometry";
 
@@ -97,7 +97,10 @@ export class GalaxyViewport {
   private lastFocus = "";
   private lastGeometryBucket = "";
   private lastHitMode: HitMode | null = null;
-  private lastStaticSignature = "";
+  private lastGridSignature = "";
+  private lastOverlaySignature = "";
+  private lastRouteSignature = "";
+  private lastSectorsSignature = "";
   private renderedSelected = "";
   private renderedSearch = "";
   private lod12Blend = 0;
@@ -146,12 +149,8 @@ export class GalaxyViewport {
     const previousSelected = this.renderedSelected;
     const previousSearch = this.renderedSearch;
     this.state = state;
-    const signature = this.staticSignature(state);
-    if (signature !== this.lastStaticSignature) {
-      this.renderStatic();
-    } else {
-      this.drawAnimatedEffects();
-    }
+    this.renderStatic();
+    this.drawAnimatedEffects();
     if (previousSelected && state.selected !== previousSelected) this.focusSelected();
     if (previousSearch !== undefined && state.search !== previousSearch) this.ensureFocusForSearch();
     this.renderedSelected = state.selected;
@@ -299,35 +298,81 @@ export class GalaxyViewport {
 
   private renderStatic(): void {
     if (!this.state) return;
-    this.lastStaticSignature = this.staticSignature(this.state);
-    this.axisLabels.removeChildren();
-    this.regionLabels.removeChildren();
-    this.sectorRegionLabels.removeChildren();
-    this.sectorLabels.removeChildren();
-    this.drawGrid();
-    this.drawOverlays();
-    this.drawRouteBase();
-    this.drawSectors();
+    this.renderStaticGroups(false, true);
     this.updateLodTransition(true);
     this.updateLodVisibility();
     this.lastHitMode = this.hitMode();
     this.lastGeometryBucket = this.geometryBucket();
-    this.ensureFocusForSearch();
   }
 
-  private staticSignature(state: AppState): string {
+  private renderStaticGroups(force: boolean, includeLabels: boolean): void {
+    if (!this.state) return;
+    const gridSignature = this.gridSignature();
+    if (force || gridSignature !== this.lastGridSignature) {
+      this.lastGridSignature = gridSignature;
+      this.drawGrid(includeLabels);
+    }
+
+    const overlaySignature = this.overlaySignature(this.state);
+    if (force || overlaySignature !== this.lastOverlaySignature) {
+      this.lastOverlaySignature = overlaySignature;
+      this.drawOverlays();
+    }
+
+    const routeSignature = this.routeSignature(this.state);
+    if (force || routeSignature !== this.lastRouteSignature) {
+      this.lastRouteSignature = routeSignature;
+      this.drawRouteBase();
+    }
+
+    const sectorsSignature = this.sectorsSignature(this.state);
+    if (force || sectorsSignature !== this.lastSectorsSignature) {
+      this.lastSectorsSignature = sectorsSignature;
+      this.drawSectors(includeLabels);
+    }
+  }
+
+  private layoutSignature(): string {
+    const { cell, originX, originY, width, height } = this.layout;
+    return `${cell}:${originX}:${originY}:${width}:${height}`;
+  }
+
+  private gridSignature(): string {
+    return `${this.layoutSignature()};${this.geometryBucket()}`;
+  }
+
+  private overlaySignature(state: AppState): string {
     return [
+      this.layoutSignature(),
+      this.geometryBucket(),
+      state.selected,
+      state.driveTier,
+      state.useRange,
+      state.layers.rifts,
+      state.layers.range,
+      state.layers.gates
+    ].join(";");
+  }
+
+  private routeSignature(state: AppState): string {
+    return [
+      this.layoutSignature(),
+      this.geometryBucket(),
+      state.route.map((step) => `${step.id}:${step.mode}:${step.x}:${step.z}`).join("|")
+    ].join(";");
+  }
+
+  private sectorsSignature(state: AppState): string {
+    return [
+      this.layoutSignature(),
+      this.geometryBucket(),
+      this.hitMode(),
       state.origin,
       state.destination,
-      state.driveTier,
-      state.hull,
-      state.useGates,
-      state.avoidNull,
-      state.useRange,
       state.search,
       [...state.activeZones].sort().join(","),
-      Object.entries(state.layers).map(([key, value]) => `${key}:${value}`).join(","),
-      state.route.map((step) => `${step.id}:${step.mode}:${step.x}:${step.z}`).join("|")
+      state.layers.threat,
+      state.layers.labels
     ].join(";");
   }
 
@@ -336,20 +381,19 @@ export class GalaxyViewport {
     const bucket = this.geometryBucket();
     if (bucket === this.lastGeometryBucket) return;
     this.lastGeometryBucket = bucket;
-    this.drawGrid(false);
-    this.drawOverlays();
-    this.drawRouteBase();
-    this.drawSectors(false);
+    this.renderStaticGroups(false, false);
     this.updateLodVisibility();
   }
 
   private updateHitMode(): void {
+    if (!this.state) return;
     const mode = this.hitMode();
     if (mode === this.lastHitMode) return;
     this.lastHitMode = mode;
     this.hovered = null;
     this.hoveredEndpoint = null;
     this.drawSectors(false);
+    this.lastSectorsSignature = this.sectorsSignature(this.state);
   }
 
   private geometryBucket(): string {
@@ -488,6 +532,7 @@ export class GalaxyViewport {
     const width = this.layout.width + 180;
     const height = this.layout.height + 180;
     this.grid.clear();
+    if (includeLabels) this.axisLabels.removeChildren();
     for (let x = 0; x < width; x += 48) this.grid.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
     for (let y = 0; y < height; y += 48) this.grid.moveTo(0, y).lineTo(width, y).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
     for (let y = 0; y < height; y += 5) this.grid.rect(0, y, width, 1).fill({ color: 0xffffff, alpha: 0.018 });
@@ -522,17 +567,17 @@ export class GalaxyViewport {
     }
 
     if (state.layers.range && state.useRange && state.driveTier < 5) {
-      const originEndpoint = endpointById.get(state.origin);
-      const origin = originEndpoint ? byCoord.get(originEndpoint.region) : undefined;
-      if (origin) {
+      const selectedEndpoint = endpointById.get(state.selected);
+      const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
+      if (selected) {
         const range = state.driveTier === 4 ? 5 : state.driveTier;
-        const minCol = Math.max(0, origin.col - range);
-        const maxCol = Math.min(7, origin.col + range);
-        const minRow = Math.max(0, origin.row - range);
-        const maxRow = Math.min(7, origin.row + range);
+        const minCol = Math.max(0, selected.col - range);
+        const maxCol = Math.min(7, selected.col + range);
+        const minRow = Math.max(0, selected.row - range);
+        const maxRow = Math.min(7, selected.row + range);
         const start = this.rectFor(byCoord.get(`${String.fromCharCode(65 + minCol)}${minRow + 1}`)!);
         const end = this.rectFor(byCoord.get(`${String.fromCharCode(65 + maxCol)}${maxRow + 1}`)!);
-        this.overlays.rect(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18)
+        this.overlays.roundRect(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18)
           .stroke({ color: 0xc49cff, alpha: 0.72, width: this.worldWidth(2) });
       }
     }
@@ -723,7 +768,6 @@ export class GalaxyViewport {
       this.sectorLabels.removeChildren();
     }
 
-    const routeCoords = new Set(state.route.map((step) => step.coord));
     const search = state.search.trim().toLowerCase();
     const originEndpoint = endpointById.get(state.origin);
     const destinationEndpoint = endpointById.get(state.destination);
@@ -733,10 +777,8 @@ export class GalaxyViewport {
       const rect = this.rectFor(region);
       const color = zoneColors[region.zone];
       const visible = state.activeZones.has(region.zone) && (!search || `${region.coord} ${region.name} ${region.slug} ${region.zone}`.toLowerCase().includes(search));
-      const inRoute = routeCoords.has(region.coord);
       const origin = region.coord === originEndpoint?.region;
       const destination = region.coord === destinationEndpoint?.region;
-      const gateCount = gatesByCoord.get(region.coord)?.length ?? 0;
 
       const regionGraphic = new Graphics();
       regionGraphic.alpha = visible ? 1 : 0.18;

@@ -83,7 +83,8 @@ const stepScore = (state: AppState, next: Edge): number => {
   const target = byCoord.get(next.to.coord);
   if (!target) return Infinity;
   const impulsePenalty = next.impulseDistance * 0.008;
-  return next.fuel * weights.fuel + next.stepCount * weights.steps + riskFor(target) * weights.risk + impulsePenalty;
+  const gateFactor = next.mode === "gate" ? 0.35 : 1;
+  return next.fuel * weights.fuel + next.stepCount * weights.steps * gateFactor + riskFor(target) * weights.risk * gateFactor + impulsePenalty;
 };
 
 const warpEdge = (state: AppState, from: RouteNode, target: RouteNode): Edge | null => {

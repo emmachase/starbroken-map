@@ -80,6 +80,7 @@ export class GalaxyViewport {
   private readonly regionLabels = new Container();
   private readonly sectorRegionLabels = new Container();
   private readonly sectorLabels = new Container();
+  private readonly endpointLabels = new Container();
   private readonly effects = new Graphics();
   private readonly particlesLayer = new Graphics();
   private readonly resizeObserver: ResizeObserver;
@@ -101,6 +102,8 @@ export class GalaxyViewport {
   private lastOverlaySignature = "";
   private lastRouteSignature = "";
   private lastSectorsSignature = "";
+  private lastLabelsSignature = "";
+  private lastEndpointLabelsSignature = "";
   private renderedSelected = "";
   private renderedSearch = "";
   private lod12Blend = 0;
@@ -134,6 +137,7 @@ export class GalaxyViewport {
       this.regionLabels,
       this.sectorRegionLabels,
       this.sectorLabels,
+      this.endpointLabels,
       this.effects,
       this.particlesLayer
     );
@@ -328,7 +332,21 @@ export class GalaxyViewport {
     const sectorsSignature = this.sectorsSignature(this.state);
     if (force || sectorsSignature !== this.lastSectorsSignature) {
       this.lastSectorsSignature = sectorsSignature;
-      this.drawSectors(includeLabels);
+      this.drawSectors();
+    }
+
+    if (includeLabels) {
+      const labelsSignature = this.labelsSignature(this.state);
+      if (force || labelsSignature !== this.lastLabelsSignature) {
+        this.lastLabelsSignature = labelsSignature;
+        this.drawLabels();
+      }
+
+      const endpointLabelsSignature = this.endpointLabelsSignature(this.state);
+      if (force || endpointLabelsSignature !== this.lastEndpointLabelsSignature) {
+        this.lastEndpointLabelsSignature = endpointLabelsSignature;
+        this.drawEndpointLabels();
+      }
     }
   }
 
@@ -371,8 +389,22 @@ export class GalaxyViewport {
       state.destination,
       state.search,
       [...state.activeZones].sort().join(","),
-      state.layers.threat,
+      state.layers.threat
+    ].join(";");
+  }
+
+  private labelsSignature(state: AppState): string {
+    return [
+      this.layoutSignature(),
       state.layers.labels
+    ].join(";");
+  }
+
+  private endpointLabelsSignature(state: AppState): string {
+    return [
+      this.layoutSignature(),
+      state.origin,
+      state.destination
     ].join(";");
   }
 
@@ -392,7 +424,7 @@ export class GalaxyViewport {
     this.lastHitMode = mode;
     this.hovered = null;
     this.hoveredEndpoint = null;
-    this.drawSectors(false);
+    this.drawSectors();
     this.lastSectorsSignature = this.sectorsSignature(this.state);
   }
 
@@ -458,6 +490,8 @@ export class GalaxyViewport {
     this.sectorRegionLabels.alpha = lod.sectorRegionLabelAlpha;
     this.sectorLabels.visible = lod.sectorLabelAlpha > 0.01;
     this.sectorLabels.alpha = lod.sectorLabelAlpha;
+    this.endpointLabels.visible = lod.regionLabelAlpha > 0.01;
+    this.endpointLabels.alpha = lod.regionLabelAlpha;
   }
 
   private worldWidth(screenPixels: number): number {
@@ -756,17 +790,12 @@ export class GalaxyViewport {
     }
   }
 
-  private drawSectors(includeLabels = true): void {
+  private drawSectors(): void {
     const state = this.state;
     if (!state) return;
     this.regionLayer.removeChildren();
     this.sectorLayer.removeChildren();
     this.contentLayer.removeChildren();
-    if (includeLabels) {
-      this.regionLabels.removeChildren();
-      this.sectorRegionLabels.removeChildren();
-      this.sectorLabels.removeChildren();
-    }
 
     const search = state.search.trim().toLowerCase();
     const originEndpoint = endpointById.get(state.origin);
@@ -798,7 +827,7 @@ export class GalaxyViewport {
           .stroke({ color, alpha: sectorActive ? 0.92 : 0.45, width: this.worldWidth(sectorActive ? 1.8 : 1) });
       }
 
-      if (origin || destination) this.drawSectorMark(regionGraphic, rect, origin ? "START" : "END", origin ? 0x71d5ff : 0xc49cff, includeLabels);
+      if (origin || destination) this.drawSectorMark(regionGraphic, rect, origin ? 0x71d5ff : 0xc49cff);
 
       this.regionLayer.addChild(regionGraphic);
       this.sectorLayer.addChild(sectorGraphic);
@@ -815,26 +844,6 @@ export class GalaxyViewport {
         }
       }
 
-      if (!includeLabels) continue;
-      const textOffset = origin || destination ? Math.max(5, this.layout.cell * 0.06) : 0;
-      if (state.layers.labels) {
-        const denseLabels = this.camera.scale > 0.86 && this.layout.cell > 58;
-        const nameMax = Math.max(5, Math.floor(rect.w / 7));
-        const slugMax = Math.max(6, Math.floor(rect.w / 6));
-        this.drawHudText(this.regionLabels, region.coord, rect.x + 9, rect.y + 10 + textOffset, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
-        if (denseLabels) {
-          this.drawHudText(this.regionLabels, fitText(region.name, nameMax), rect.x + 9, rect.y + rect.h * 0.43 + textOffset * 0.35, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
-          if (rect.w > 48) this.drawHudText(this.regionLabels, fitText(region.slug, slugMax), rect.x + 9, rect.y + rect.h * 0.62 + textOffset * 0.25, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
-        }
-        this.drawHudText(this.sectorRegionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2 - this.layout.cell * 0.1 + textOffset * 0.3, color, this.layout.cell * 0.2, "center", 900);
-        for (const sector of region.sectors) {
-          const start = this.pointForCoords(sector.xMin, sector.zMin);
-          const end = this.pointForCoords(sector.xMax, sector.zMax);
-          this.drawHudText(this.sectorLabels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.layout.cell * 0.08, 0xa9b8cf, this.layout.cell * 0.135, "center", 800);
-        }
-      } else if (!state.layers.labels) {
-        this.drawHudText(this.regionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
-      }
     }
 
     for (const location of locations) {
@@ -883,6 +892,53 @@ export class GalaxyViewport {
         else this.onSelect(endpointId);
       });
       this.contentLayer.addChild(marker);
+    }
+  }
+
+  private drawLabels(): void {
+    const state = this.state;
+    if (!state) return;
+    this.regionLabels.removeChildren();
+    this.sectorRegionLabels.removeChildren();
+    this.sectorLabels.removeChildren();
+
+    for (const region of regions) {
+      const rect = this.rectFor(region);
+      const color = zoneColors[region.zone];
+      if (state.layers.labels) {
+        const denseLabels = this.layout.cell > 58;
+        const nameMax = Math.max(5, Math.floor(rect.w / 7));
+        const slugMax = Math.max(6, Math.floor(rect.w / 6));
+        this.drawHudText(this.regionLabels, region.coord, rect.x + 9, rect.y + 10, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
+        if (denseLabels) {
+          this.drawHudText(this.regionLabels, fitText(region.name, nameMax), rect.x + 9, rect.y + rect.h * 0.43, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
+          if (rect.w > 48) this.drawHudText(this.regionLabels, fitText(region.slug, slugMax), rect.x + 9, rect.y + rect.h * 0.62, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
+        }
+        this.drawHudText(this.sectorRegionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2 - this.layout.cell * 0.1, color, this.layout.cell * 0.2, "center", 900);
+        for (const sector of region.sectors) {
+          const start = this.pointForCoords(sector.xMin, sector.zMin);
+          const end = this.pointForCoords(sector.xMax, sector.zMax);
+          this.drawHudText(this.sectorLabels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.layout.cell * 0.08, 0xa9b8cf, this.layout.cell * 0.135, "center", 800);
+        }
+      } else {
+        this.drawHudText(this.regionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
+      }
+    }
+  }
+
+  private drawEndpointLabels(): void {
+    const state = this.state;
+    if (!state) return;
+    this.endpointLabels.removeChildren();
+    const originEndpoint = endpointById.get(state.origin);
+    const destinationEndpoint = endpointById.get(state.destination);
+    for (const [endpoint, text] of [[originEndpoint, "START"], [destinationEndpoint, "END"]] as const) {
+      if (!endpoint) continue;
+      const region = byCoord.get(endpoint.region);
+      if (!region) continue;
+      const rect = this.rectFor(region);
+      const { x, y } = this.sectorMarkLabelPoint(rect);
+      this.drawHudText(this.endpointLabels, text, x, y, 0x04111d, Math.max(8, this.layout.cell * 0.1), "center", 900);
     }
   }
 
@@ -940,14 +996,23 @@ export class GalaxyViewport {
     return (units / GALAXY_SIZE) * this.layout.width;
   }
 
-  private drawSectorMark(target: Graphics, rect: { x: number; y: number; w: number; h: number }, text: string, color: number, includeLabel = true): void {
+  private drawSectorMark(target: Graphics, rect: { x: number; y: number; w: number; h: number }, color: number): void {
     target.poly(chamferPoints(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2, 8)).fill({ color, alpha: 0.1 });
+    const { tabX, tabY, tabW } = this.sectorMarkGeometry(rect);
+    target.poly([tabX + 6, tabY, tabX + tabW, tabY, tabX + tabW, rect.y + 1, tabX, rect.y + 1, tabX, tabY + 6])
+      .fill({ color, alpha: 1 });
+  }
+
+  private sectorMarkGeometry(rect: { x: number; y: number; w: number; h: number }): { tabX: number; tabY: number; tabW: number } {
     const tabW = Math.max(46, Math.min(64, rect.w * 0.62));
     const tabX = rect.x + (rect.w - tabW) / 2;
     const tabY = rect.y - Math.max(15, Math.min(18, rect.h * 0.21)) * 0.68;
-    target.poly([tabX + 6, tabY, tabX + tabW, tabY, tabX + tabW, rect.y + 1, tabX, rect.y + 1, tabX, tabY + 6])
-      .fill({ color, alpha: 1 });
-    if (includeLabel) this.drawHudText(this.regionLabels, text, tabX + tabW / 2, tabY + 3, 0x04111d, this.worldWidth(8), "center", 900);
+    return { tabX, tabY, tabW };
+  }
+
+  private sectorMarkLabelPoint(rect: { x: number; y: number; w: number; h: number }): { x: number; y: number } {
+    const { tabX, tabY, tabW } = this.sectorMarkGeometry(rect);
+    return { x: tabX + tabW / 2, y: tabY + 3 };
   }
 
   private drawHudText(target: Container, value: string, x: number, y: number, color: number, size: number, align: "left" | "center", weight = 700): void {

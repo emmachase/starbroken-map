@@ -1,5 +1,5 @@
-import { byCoord, driveRanges, gatesByCoord, hullFuel, profiles, regions, zoneClass, zoneCss } from "../data/galaxy";
-import type { AppState, HullClass, Region, Zone } from "../types";
+import { byCoord, driveRanges, endpointById, endpoints, gatesByCoord, hullFuel, locations, locationsByCoord, pairedGateById, profiles, regions, zoneClass, zoneCss } from "../data/galaxy";
+import type { AppState, Endpoint, HullClass, MapLocation, Region, Zone } from "../types";
 
 export const qs = <T extends Element>(selector: string): T => {
   const node = document.querySelector<T>(selector);
@@ -9,8 +9,32 @@ export const qs = <T extends Element>(selector: string): T => {
 
 export const qsa = <T extends Element>(selector: string): T[] => Array.from(document.querySelectorAll<T>(selector));
 
+const endpointText = (id: string): string => endpointById.get(id)?.label ?? id;
+
+const escapeHtml = (value: string): string => value
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll("\"", "&quot;");
+
+const locationKindLabel: Record<MapLocation["kind"], string> = {
+  station: "Station",
+  planet: "Planet",
+  belt: "Belt",
+  gate: "Gate",
+  wreck: "Wreck",
+  system: "System"
+};
+
+const option = (endpoint: Endpoint): string => `<option value="${endpoint.id}">${escapeHtml(endpoint.label)}</option>`;
+
 export const populateSelects = (state: AppState): void => {
-  const options = regions.map((region) => `<option value="${region.coord}">${region.coord} - ${region.name}</option>`).join("");
+  const sectorOptions = endpoints.filter((endpoint) => endpoint.kind === "sector").map(option).join("");
+  const locationOptions = endpoints.filter((endpoint) => endpoint.kind === "location").map(option).join("");
+  const options = `
+    <optgroup label="Sectors">${sectorOptions}</optgroup>
+    <optgroup label="Published locations">${locationOptions}</optgroup>
+  `;
   qs<HTMLSelectElement>("#origin").innerHTML = options;
   qs<HTMLSelectElement>("#destination").innerHTML = options;
   qs<HTMLSelectElement>("#origin").value = state.origin;
@@ -61,15 +85,11 @@ export const readControlState = (state: AppState): void => {
 };
 
 export const renderRouteStrip = (state: AppState): void => {
-  const origin = byCoord.get(state.origin);
-  const dest = byCoord.get(state.destination);
-  if (!origin || !dest) return;
-
   qs("#routeProfileLabel").textContent = profiles[state.profile].label;
-  qs("#routeHeadline").innerHTML = `${origin.coord} ${origin.name} <span>-></span> ${dest.coord} ${dest.name}`;
+  qs("#routeHeadline").innerHTML = `${escapeHtml(endpointText(state.origin))} <span>-></span> ${escapeHtml(endpointText(state.destination))}`;
   qs("#profileHelp").textContent = profiles[state.profile].help;
   qs("#routeMetrics").innerHTML = `
-    <div class="metric"><b>${state.route.length ? state.route.length - 1 : "--"}</b><span>Jumps</span></div>
+    <div class="metric"><b>${state.route.length ? state.route.length - 1 : "--"}</b><span>Steps</span></div>
     <div class="metric"><b>${state.routeInfo.cells.toLocaleString()}</b><span>Cells</span></div>
     <div class="metric"><b>${state.routeInfo.gateJumps}</b><span>Gates</span></div>
     <div class="metric ${state.routeInfo.nulls ? "null" : state.routeInfo.frontier ? "frontier" : "core"}"><b style="color:var(--zone)">${riskLabel(state)}</b><span>Risk</span></div>
@@ -77,20 +97,18 @@ export const renderRouteStrip = (state: AppState): void => {
 };
 
 export const renderRoutePanel = (state: AppState): void => {
-  const origin = byCoord.get(state.origin);
-  const dest = byCoord.get(state.destination);
-  if (!origin || !dest) return;
-
   const range = driveRanges[state.driveTier];
   const cost = state.route.length ? `${state.routeInfo.cells.toLocaleString()} Drive Cells` : "No path";
   qs("#costReadout").innerHTML = `
     <strong>${cost}</strong>
-    <div class="muted">${profiles[state.profile].label} / ${state.routeInfo.hull} / ${state.routeInfo.warpJumps} warp / ${state.routeInfo.gateJumps} gates / ${state.routeInfo.nulls} NULL / ~${state.routeInfo.credits.toLocaleString()} cr</div>
+    <div class="muted">${profiles[state.profile].label} / ${state.routeInfo.hull} / ${state.routeInfo.warpJumps} warp / ${state.routeInfo.gateJumps} gates / ${state.routeInfo.impulseSteps} impulse / ~${state.routeInfo.credits.toLocaleString()} cr</div>
     <div class="data-grid">
-      <div>From</div><div>${origin.coord} - ${origin.name}</div>
-      <div>To</div><div>${dest.coord} - ${dest.name}</div>
+      <div>From</div><div>${escapeHtml(endpointText(state.origin))}</div>
+      <div>To</div><div>${escapeHtml(endpointText(state.destination))}</div>
       <div>Drive</div><div>${state.driveTier === 5 || !state.useRange ? "Unlimited" : `T${state.driveTier}, ${range} region hop${range === 1 ? "" : "s"}`}</div>
+      <div>Warp drop</div><div>Target sector center</div>
       <div>Fuel rate</div><div>${hullFuel[state.hull].toLocaleString()} cells / warp</div>
+      <div>Impulse</div><div>${Math.round(state.routeInfo.impulseDistance).toLocaleString()} units</div>
     </div>
   `;
 
@@ -98,12 +116,14 @@ export const renderRoutePanel = (state: AppState): void => {
     ? state.route.map((step, index) => {
       const region = byCoord.get(step.coord);
       if (!region) return "";
+      const location = step.locationId ? locations.find((item) => item.id === step.locationId) : undefined;
+      const title = location ? `${location.name} (${region.coord}.${step.sector})` : `${region.coord}.${step.sector ?? "--"} - ${region.name}`;
       return `
         <div class="route-step" data-coord="${region.coord}">
           <div class="stepnum">${index + 1}</div>
           <div>
-            <b>${region.coord} - ${region.name}</b>
-            <div class="muted"><span style="color:${zoneCss[region.zone]}">${region.zone}</span> / ${step.label}</div>
+            <b>${escapeHtml(title)}</b>
+            <div class="muted"><span style="color:${zoneCss[region.zone]}">${region.zone}</span> / ${escapeHtml(step.label)}</div>
           </div>
         </div>`;
     }).join("")
@@ -114,19 +134,23 @@ export const renderDetails = (state: AppState): void => {
   const selected = byCoord.get(state.selected);
   if (!selected) return;
   const gateCount = gatesByCoord.get(selected.coord)?.length ?? 0;
+  const regionLocations = locationsByCoord.get(selected.coord) ?? [];
+  const published = regionLocations.filter((location) => !location.hidden).length;
+  const hidden = regionLocations.length - published;
 
   qs("#detailTitle").textContent = `${selected.coord} - ${selected.name}`;
   qs("#detailSub").textContent = `${selected.zone} / ${selected.slug}`;
   const badge = qs<HTMLElement>("#detailBadge");
   badge.className = `readout ${zoneClass[selected.zone]}`;
   badge.innerHTML = `
-    <strong style="color:var(--zone)">${selected.zone}</strong>
+    <strong style="color:var(--zone)">${selected.security}</strong>
     <div class="muted">${zoneMeaning(selected.zone)}</div>
     <div class="data-grid">
-      <div>Coordinate</div><div>${selected.coord}</div>
-      <div>Slug</div><div>${selected.slug}</div>
-      <div>Sectors</div><div>${selected.sectors}</div>
+      <div>Region</div><div>${selected.coord}</div>
+      <div>Range</div><div>x ${selected.xMin.toLocaleString()}-${selected.xMax.toLocaleString()}, z ${selected.zMin.toLocaleString()}-${selected.zMax.toLocaleString()}</div>
+      <div>Sectors</div><div>${selected.sectors.map((sector) => `${sector.id}: ${sector.centerX.toLocaleString()}, ${sector.centerZ.toLocaleString()}`).join("<br>")}</div>
       <div>Gates</div><div>${gateCount}</div>
+      <div>Locations</div><div>${published}${hidden ? ` published / ${hidden} hidden` : ""}</div>
     </div>
     <div class="action-row">
       <button id="setOrigin" type="button">Set Origin</button>
@@ -136,25 +160,45 @@ export const renderDetails = (state: AppState): void => {
 
   renderStats();
   renderGates(selected);
-  renderNearby(selected);
+  renderRegionLocations(selected);
   renderResults(state);
 };
 
 export const renderResults = (state: AppState): void => {
   const query = state.search.trim().toLowerCase();
-  const hits = regions.filter((region) => {
+  const regionHits = regions.filter((region) => {
     const haystack = `${region.coord} ${region.name} ${region.slug} ${region.zone} r${region.slug.split("-r")[1]}`.toLowerCase();
     return state.activeZones.has(region.zone) && (!query || haystack.includes(query));
-  });
-  qs("#results").innerHTML = hits.slice(0, 9).map((region) => itemHtml(region, `${region.zone} / ${region.slug}`)).join("") || `<div class="muted">No matches.</div>`;
+  }).slice(0, 5).map((region) => itemHtml(region, `${region.zone} / ${region.slug}`));
+  const locationHits = locations.filter((location) => {
+    const haystack = `${location.name} ${location.kind} ${location.region} ${location.zone} ${location.resources?.join(" ") ?? ""}`.toLowerCase();
+    return state.activeZones.has(location.zone) && (!query || haystack.includes(query));
+  }).slice(0, 7).map(locationHtml);
+  qs("#results").innerHTML = [...regionHits, ...locationHits].slice(0, 10).join("") || `<div class="muted">No matches.</div>`;
 };
 
 export const itemHtml = (region: Region, detail: string): string => `
   <div class="item" data-coord="${region.coord}">
-    <b>${region.coord} - ${region.name}</b>
-    <div class="muted"><span style="color:${zoneCss[region.zone]}">${region.zone}</span> / ${detail}</div>
+    <b>${region.coord} - ${escapeHtml(region.name)}</b>
+    <div class="muted"><span style="color:${zoneCss[region.zone]}">${region.zone}</span> / ${escapeHtml(detail)}</div>
   </div>
 `;
+
+const locationHtml = (location: MapLocation): string => {
+  const region = byCoord.get(location.region);
+  const details = [
+    locationKindLabel[location.kind],
+    location.sector ? `${location.region}.${location.sector}` : location.region,
+    location.hidden ? "coordinates hidden" : location.details.coordinates,
+    location.resources?.slice(0, 3).join(", ")
+  ].filter(Boolean).join(" / ");
+  return `
+    <div class="item" data-coord="${location.region}">
+      <b>${escapeHtml(location.name)}</b>
+      <div class="muted"><span style="color:${zoneCss[location.zone]}">${region?.zone ?? location.zone}</span> / ${escapeHtml(details)}</div>
+    </div>
+  `;
+};
 
 const renderStats = (): void => {
   const counts: Record<Zone, number> = { CORE: 0, MID: 0, FRONTIER: 0, NULL: 0 };
@@ -171,22 +215,22 @@ const renderGates = (selected: Region): void => {
   const list = gatesByCoord.get(selected.coord) ?? [];
   qs("#gateList").innerHTML = list.length
     ? list.map((gate) => {
-      const otherCoord = gate.a === selected.coord ? gate.b : gate.a;
-      const localSector = gate.a === selected.coord ? gate.aSector : gate.bSector;
-      const otherSector = gate.a === selected.coord ? gate.bSector : gate.aSector;
-      const other = byCoord.get(otherCoord);
-      return other ? itemHtml(other, `${selected.name} ${localSector} gate to ${other.name} ${otherSector}`) : "";
+      const paired = pairedGateById.get(gate.id);
+      const otherRegion = paired ? byCoord.get(paired.region) : null;
+      const detail = paired
+        ? `${gate.name} (${gate.sector}) -> ${paired.name} (${paired.region}.${paired.sector})`
+        : `${gate.name} (${gate.sector})`;
+      return otherRegion ? itemHtml(otherRegion, detail) : locationHtml(gate);
     }).join("")
     : `<div class="muted">No gate endpoint in this region.</div>`;
 };
 
-const renderNearby = (selected: Region): void => {
-  const list = regions
-    .filter((region) => region.coord !== selected.coord)
-    .map((region) => ({ ...region, dist: Math.abs(region.col - selected.col) + Math.abs(region.row - selected.row) }))
-    .sort((a, b) => a.dist - b.dist || a.coord.localeCompare(b.coord))
-    .slice(0, 7);
-  qs("#nearby").innerHTML = list.map((region) => itemHtml(region, `${region.dist} grid step${region.dist === 1 ? "" : "s"} away`)).join("");
+const renderRegionLocations = (selected: Region): void => {
+  const list = (locationsByCoord.get(selected.coord) ?? [])
+    .sort((a, b) => Number(a.hidden) - Number(b.hidden) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  qs("#nearby").innerHTML = list.length
+    ? list.map(locationHtml).join("")
+    : `<div class="muted">No published signals in this region.</div>`;
 };
 
 const zoneMeaning = (zone: Zone): string => ({

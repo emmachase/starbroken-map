@@ -1,33 +1,38 @@
-import type { Gate, HullClass, ProfileConfig, Region, RouteInfo, RouteProfile, Zone } from "../types";
+import type { Endpoint, Gate, HullClass, MapLocation, ProfileConfig, Region, RouteInfo, RouteProfile, Sector, SectorName, Zone } from "../types";
+import {
+  GALAXY_COLUMNS,
+  GALAXY_ROWS,
+  GALAXY_SIZE,
+  REGION_SIZE,
+  SECTOR_SIZE,
+  GENERATED_SOURCE,
+  generatedGatePairs,
+  generatedLocations,
+  generatedOreIndex,
+  generatedRegions
+} from "./generatedGalaxy";
 
-const rawRegions: Array<[string, string, string, Zone]> = [
-  ["A1", "Vega Reach", "vega-reach-r0", "CORE"], ["B1", "Orin Veil", "orin-veil-r1", "CORE"], ["C1", "Helix Verge", "helix-verge-r2", "CORE"], ["D1", "Carina Span", "carina-span-r3", "MID"], ["E1", "Drift Hollows", "drift-hollows-r4", "MID"], ["F1", "Korr Expanse", "korr-expanse-r5", "FRONTIER"], ["G1", "Nyx Marches", "nyx-marches-r6", "MID"], ["H1", "Pyxis Quartz", "pyxis-quartz-r7", "FRONTIER"],
-  ["A2", "Solyn Cradle", "solyn-cradle-r8", "CORE"], ["B2", "Tarsis Belt", "tarsis-belt-r9", "CORE"], ["C2", "Umbral Coil", "umbral-coil-r10", "MID"], ["D2", "Wraith Hollow", "wraith-hollow-r11", "MID"], ["E2", "Xanthe Drift", "xanthe-drift-r12", "MID"], ["F2", "Yarrow Pale", "yarrow-pale-r13", "MID"], ["G2", "Zephyr Crown", "zephyr-crown-r14", "FRONTIER"], ["H2", "Aeon Maw", "aeon-maw-r15", "FRONTIER"],
-  ["A3", "Briar Cluster", "briar-cluster-r16", "CORE"], ["B3", "Cassia Wash", "cassia-wash-r17", "MID"], ["C3", "Dross Field", "dross-field-r18", "MID"], ["D3", "Echo Trace", "echo-trace-r19", "FRONTIER"], ["E3", "Fenix Shadow", "fenix-shadow-r20", "MID"], ["F3", "Galen Mouth", "galen-mouth-r21", "FRONTIER"], ["G3", "Hesper Edge", "hesper-edge-r22", "FRONTIER"], ["H3", "Indigo Throne", "indigo-throne-r23", "FRONTIER"],
-  ["A4", "Janus Spire", "janus-spire-r24", "MID"], ["B4", "Kestrel Gulf", "kestrel-gulf-r25", "MID"], ["C4", "Lyra Glade", "lyra-glade-r26", "MID"], ["D4", "Mira Knot", "mira-knot-r27", "MID"], ["E4", "Nimbus Shoals", "nimbus-shoals-r28", "FRONTIER"], ["F4", "Orpheus Tide", "orpheus-tide-r29", "FRONTIER"], ["G4", "Pyre Sweep", "pyre-sweep-r30", "NULL"], ["H4", "Quill Marsh", "quill-marsh-r31", "FRONTIER"],
-  ["A5", "Sable Fold", "sable-fold-r32", "MID"], ["B5", "Theron Bound", "theron-bound-r33", "MID"], ["C5", "Ursa Crest", "ursa-crest-r34", "MID"], ["D5", "Vesper Hollow", "vesper-hollow-r35", "FRONTIER"], ["E5", "Wraith Span", "wraith-span-r36", "FRONTIER"], ["F5", "Xeric Reach", "xeric-reach-r37", "FRONTIER"], ["G5", "Yotun Drift", "yotun-drift-r38", "FRONTIER"], ["H5", "Zorya Veil", "zorya-veil-r39", "FRONTIER"],
-  ["A6", "Astor Cinder", "astor-cinder-r40", "CORE"], ["B6", "Brae Threshold", "brae-threshold-r41", "FRONTIER"], ["C6", "Calix Cradle", "calix-cradle-r42", "MID"], ["D6", "Dvalin Steep", "dvalin-steep-r43", "FRONTIER"], ["E6", "Erebos Hollow", "erebos-hollow-r44", "FRONTIER"], ["F6", "Fjord Verge", "fjord-verge-r45", "FRONTIER"], ["G6", "Garm Span", "garm-span-r46", "FRONTIER"], ["H6", "Hyacinth Maw", "hyacinth-maw-r47", "NULL"],
-  ["A7", "Iolite Hollow", "iolite-hollow-r48", "CORE"], ["B7", "Juno Belt", "juno-belt-r49", "MID"], ["C7", "Karst March", "karst-march-r50", "MID"], ["D7", "Loam Crown", "loam-crown-r51", "FRONTIER"], ["E7", "Murk Cluster", "murk-cluster-r52", "NULL"], ["F7", "Nephele Coil", "nephele-coil-r53", "FRONTIER"], ["G7", "Onyx Reach", "onyx-reach-r54", "NULL"], ["H7", "Pallid Veil", "pallid-veil-r55", "NULL"],
-  ["A8", "Rann Throne", "rann-throne-r56", "CORE"], ["B8", "Sere Glade", "sere-glade-r57", "CORE"], ["C8", "Tang Drift", "tang-drift-r58", "MID"], ["D8", "Volt Verge", "volt-verge-r59", "FRONTIER"], ["E8", "Wisp Pale", "wisp-pale-r60", "FRONTIER"], ["F8", "Yew Spire", "yew-spire-r61", "NULL"], ["G8", "Cinder Shoal", "cinder-shoal-r62", "NULL"], ["H8", "Halcyon March", "halcyon-march-r63", "NULL"]
-];
+export { GALAXY_COLUMNS, GALAXY_ROWS, GALAXY_SIZE, REGION_SIZE, SECTOR_SIZE, GENERATED_SOURCE };
 
-export const regions: Region[] = rawRegions.map(([coord, name, slug, zone]) => ({
-  coord,
-  name,
-  slug,
-  zone,
-  col: coord.charCodeAt(0) - 65,
-  row: Number(coord.slice(1)) - 1,
-  sectors: 4
+const sectorOrder: SectorName[] = ["NW", "NE", "SW", "SE"];
+
+export const regions: Region[] = generatedRegions.map((region) => ({
+  ...region,
+  zone: region.zone as Zone,
+  sectors: region.sectors.map((sector) => ({ ...sector, id: sector.id as SectorName })) as Sector[]
 }));
 
-export const gates: Gate[] = [
-  { a: "A1", aSector: "NW", b: "A2", bSector: "NW" },
-  { a: "A2", aSector: "NW", b: "A8", bSector: "SE" },
-  { a: "A8", aSector: "SE", b: "D8", bSector: "NW" },
-  { a: "D8", aSector: "NE", b: "H8", bSector: "SW" },
-  { a: "D8", aSector: "NE", b: "E4", bSector: "SW" }
-];
+export const locations: MapLocation[] = generatedLocations.map((location) => ({
+  ...location,
+  kind: location.kind as MapLocation["kind"],
+  zone: location.zone as Zone,
+  sector: location.sector as SectorName | null,
+  details: { ...location.details },
+  resources: "resources" in location ? [...location.resources] : undefined
+}));
+
+export const gates: Gate[] = generatedGatePairs.map((pair) => ({ ...pair }));
+export const oreIndex = generatedOreIndex.map((ore) => ({ ...ore }));
 
 export const zoneColors: Record<Zone, number> = {
   CORE: 0x58e794,
@@ -90,19 +95,91 @@ export const profiles: Record<RouteProfile, ProfileConfig> = {
 };
 
 export const byCoord = new Map(regions.map((region) => [region.coord, region]));
+export const locationById = new Map(locations.map((location) => [location.id, location]));
+export const gateLocations = locations.filter((location) => location.kind === "gate" && location.x !== null && location.z !== null);
 
-export const gatesByCoord = new Map<string, Gate[]>();
+export const gatesByCoord = new Map<string, MapLocation[]>();
+export const locationsByCoord = new Map<string, MapLocation[]>();
 
-for (const gate of gates) {
-  if (!gatesByCoord.has(gate.a)) gatesByCoord.set(gate.a, []);
-  if (!gatesByCoord.has(gate.b)) gatesByCoord.set(gate.b, []);
-  gatesByCoord.get(gate.a)?.push(gate);
-  gatesByCoord.get(gate.b)?.push(gate);
+for (const location of locations) {
+  if (!locationsByCoord.has(location.region)) locationsByCoord.set(location.region, []);
+  locationsByCoord.get(location.region)?.push(location);
+  if (location.kind === "gate") {
+    if (!gatesByCoord.has(location.region)) gatesByCoord.set(location.region, []);
+    gatesByCoord.get(location.region)?.push(location);
+  }
 }
+
+export const pairedGateById = new Map<string, MapLocation>();
+for (const gate of gates) {
+  const a = locationById.get(gate.a);
+  const b = locationById.get(gate.b);
+  if (a && b) {
+    pairedGateById.set(a.id, b);
+    pairedGateById.set(b.id, a);
+  }
+}
+
+const locationKindLabel: Record<MapLocation["kind"], string> = {
+  station: "Station",
+  planet: "Planet",
+  belt: "Belt",
+  gate: "Gate",
+  wreck: "Wreck",
+  system: "System"
+};
+
+export const sectorCenter = (coord: string, sectorName: SectorName): Endpoint | null => {
+  const region = byCoord.get(coord);
+  const sector = region?.sectors.find((item) => item.id === sectorName);
+  if (!region || !sector) return null;
+  return {
+    id: `sector:${coord}:${sectorName}`,
+    label: `${coord}.${sectorName} - ${region.name}`,
+    kind: "sector",
+    region: coord,
+    sector: sectorName,
+    x: sector.centerX,
+    z: sector.centerZ
+  };
+};
+
+export const sectorForPoint = (region: Region, x: number, z: number): SectorName => {
+  const east = x >= region.xMin + SECTOR_SIZE;
+  const south = z >= region.zMin + SECTOR_SIZE;
+  if (!east && !south) return "NW";
+  if (east && !south) return "NE";
+  if (!east && south) return "SW";
+  return "SE";
+};
+
+export const endpoints: Endpoint[] = [
+  ...regions.flatMap((region) => sectorOrder.map((sector) => sectorCenter(region.coord, sector)).filter((endpoint): endpoint is Endpoint => Boolean(endpoint))),
+  ...locations.flatMap((location) => {
+    if (location.hidden || location.x === null || location.z === null || !location.sector) return [];
+    return [{
+      id: `location:${location.id}`,
+      label: `${locationKindLabel[location.kind]}: ${location.name} (${location.region}.${location.sector})`,
+      kind: "location" as const,
+      region: location.region,
+      sector: location.sector,
+      x: location.x,
+      z: location.z,
+      locationId: location.id
+    }];
+  })
+];
+
+export const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
+
+export const defaultOrigin = endpointById.get("location:station-ipu-hub-prime-a1")?.id ?? "sector:A1:NW";
+export const defaultDestination = endpointById.get("location:station-ipu-outpost-gamma-h8")?.id ?? "sector:H8:SE";
 
 export const emptyRouteInfo = (hull: HullClass): RouteInfo => ({
   warpJumps: 0,
   gateJumps: 0,
+  impulseSteps: 0,
+  impulseDistance: 0,
   cells: 0,
   credits: 0,
   frontier: 0,

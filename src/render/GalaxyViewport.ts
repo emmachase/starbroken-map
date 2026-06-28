@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { byCoord, gates, gatesByCoord, regions, zoneColors } from "../data/galaxy";
-import type { AppState, Region } from "../types";
+import { byCoord, endpointById, GALAXY_SIZE, gates, gatesByCoord, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
+import type { AppState, MapLocation, Region, RouteStep } from "../types";
 import { chamferPoints, clamp, fitText } from "./geometry";
 
 interface GalaxyViewportOptions {
@@ -12,7 +12,6 @@ interface GalaxyViewportOptions {
 
 interface Layout {
   cell: number;
-  gap: number;
   originX: number;
   originY: number;
   width: number;
@@ -67,7 +66,7 @@ export class GalaxyViewport {
   private readonly particles: Particle[] = [];
   private state: AppState | null = null;
   private hovered: string | null = null;
-  private layout: Layout = { cell: 80, gap: 22, originX: 60, originY: 60, width: 8 * 80 + 7 * 22, height: 8 * 80 + 7 * 22 };
+  private layout: Layout = { cell: 80, originX: 60, originY: 60, width: 8 * 80, height: 8 * 80 };
   private isDragging = false;
   private suppressNextTap = false;
   private dragStart = { x: 0, y: 0 };
@@ -181,15 +180,13 @@ export class GalaxyViewport {
   private computeLayout(): void {
     const width = this.root.clientWidth;
     const height = this.root.clientHeight;
-    const gap = width < 640 ? 14 : 24;
     const availableW = Math.max(420, width - 120);
     const availableH = Math.max(420, height - 120);
-    const cell = Math.min(94, Math.max(48, Math.min((availableW - 7 * gap) / 8, (availableH - 7 * gap) / 8)));
-    const gridW = cell * 8 + gap * 7;
-    const gridH = cell * 8 + gap * 7;
+    const cell = Math.min(112, Math.max(50, Math.min(availableW / 8, availableH / 8)));
+    const gridW = cell * 8;
+    const gridH = cell * 8;
     this.layout = {
       cell,
-      gap,
       originX: 60,
       originY: 60,
       width: gridW,
@@ -278,17 +275,35 @@ export class GalaxyViewport {
   }
 
   private rectFor(region: Region) {
+    const start = this.pointForCoords(region.xMin, region.zMin);
+    const end = this.pointForCoords(region.xMax, region.zMax);
     return {
-      x: this.layout.originX + region.col * (this.layout.cell + this.layout.gap),
-      y: this.layout.originY + region.row * (this.layout.cell + this.layout.gap),
-      w: this.layout.cell,
-      h: this.layout.cell
+      x: start.x,
+      y: start.y,
+      w: end.x - start.x,
+      h: end.y - start.y
     };
   }
 
   private pointFor(region: Region) {
     const rect = this.rectFor(region);
     return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+  }
+
+  private pointForCoords(x: number, z: number) {
+    return {
+      x: this.layout.originX + (x / GALAXY_SIZE) * this.layout.width,
+      y: this.layout.originY + (z / GALAXY_SIZE) * this.layout.height
+    };
+  }
+
+  private pointForStep(step: RouteStep) {
+    return this.pointForCoords(step.x, step.z);
+  }
+
+  private pointForLocation(location: MapLocation) {
+    if (location.x === null || location.z === null) return null;
+    return this.pointForCoords(location.x, location.z);
   }
 
   private drawBackground(): void {
@@ -310,13 +325,13 @@ export class GalaxyViewport {
     for (let y = 0; y < height; y += 5) this.grid.rect(0, y, width, 1).fill({ color: 0xffffff, alpha: 0.018 });
 
     for (let index = 0; index < 8; index += 1) {
-      const x = this.layout.originX + index * (this.layout.cell + this.layout.gap) + this.layout.cell / 2;
+      const x = this.layout.originX + index * this.layout.cell + this.layout.cell / 2;
       const y = this.layout.originY - 24;
       this.drawHudText(this.labels, String.fromCharCode(65 + index), x, y, 0xa9b8cf, 12, "center");
     }
     for (let index = 0; index < 8; index += 1) {
       const x = this.layout.originX - 24;
-      const y = this.layout.originY + index * (this.layout.cell + this.layout.gap) + this.layout.cell / 2 - 7;
+      const y = this.layout.originY + index * this.layout.cell + this.layout.cell / 2 - 7;
       this.drawHudText(this.labels, String(index + 1), x, y, 0xa9b8cf, 12, "center");
     }
   }
@@ -338,7 +353,8 @@ export class GalaxyViewport {
     }
 
     if (state.layers.range && state.useRange && state.driveTier < 5) {
-      const origin = byCoord.get(state.origin);
+      const originEndpoint = endpointById.get(state.origin);
+      const origin = originEndpoint ? byCoord.get(originEndpoint.region) : undefined;
       if (origin) {
         const range = state.driveTier === 4 ? 5 : state.driveTier;
         const minCol = Math.max(0, origin.col - range);
@@ -354,11 +370,11 @@ export class GalaxyViewport {
 
     if (state.layers.gates) {
       for (const gate of gates) {
-        const a = byCoord.get(gate.a);
-        const b = byCoord.get(gate.b);
-        if (!a || !b) continue;
-        const p1 = this.pointFor(a);
-        const p2 = this.pointFor(b);
+        const a = locationById.get(gate.a);
+        const b = locationById.get(gate.b);
+        const p1 = a ? this.pointForLocation(a) : null;
+        const p2 = b ? this.pointForLocation(b) : null;
+        if (!p1 || !p2) continue;
         this.overlays.moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).stroke({ color: 0x71d5ff, alpha: 0.42, width: 3 });
         this.drawGateNode(p1.x, p1.y, 0.8);
         this.drawGateNode(p2.x, p2.y, 0.8);
@@ -373,13 +389,10 @@ export class GalaxyViewport {
     if (state.route.length < 2) return;
 
     for (let index = 1; index < state.route.length; index += 1) {
-      const prev = byCoord.get(state.route[index - 1].coord);
-      const cur = byCoord.get(state.route[index].coord);
-      if (!prev || !cur) continue;
-      const a = this.pointFor(prev);
-      const b = this.pointFor(cur);
+      const a = this.pointForStep(state.route[index - 1]);
+      const b = this.pointForStep(state.route[index]);
       this.routeLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({
-        color: state.route[index].mode === "gate" ? 0x71d5ff : 0xc49cff,
+        color: state.route[index].mode === "gate" ? 0x71d5ff : state.route[index].mode === "impulse" ? 0xf5d760 : 0xc49cff,
         alpha: 0.32,
         width: 5
       });
@@ -402,12 +415,12 @@ export class GalaxyViewport {
 
     if (state.layers.gates) {
       for (const gate of gates) {
-        const a = byCoord.get(gate.a);
-        const b = byCoord.get(gate.b);
-        if (!a || !b) continue;
-        const p1 = this.pointFor(a);
-        const p2 = this.pointFor(b);
-        const t = (this.routePhase * 0.22 + gate.a.charCodeAt(0) * 0.07) % 1;
+        const a = locationById.get(gate.a);
+        const b = locationById.get(gate.b);
+        const p1 = a ? this.pointForLocation(a) : null;
+        const p2 = b ? this.pointForLocation(b) : null;
+        if (!p1 || !p2) continue;
+        const t = (this.routePhase * 0.22 + gate.a.length * 0.07) % 1;
         this.effects.circle(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t, 3.2).fill({ color: 0x71d5ff, alpha: 0.72 });
       }
     }
@@ -422,12 +435,9 @@ export class GalaxyViewport {
 
     if (state.route.length > 1) {
       for (let index = 1; index < state.route.length; index += 1) {
-        const prev = byCoord.get(state.route[index - 1].coord);
-        const cur = byCoord.get(state.route[index].coord);
-        if (!prev || !cur) continue;
-        const a = this.pointFor(prev);
-        const b = this.pointFor(cur);
-        const color = state.route[index].mode === "gate" ? 0x71d5ff : 0xc49cff;
+        const a = this.pointForStep(state.route[index - 1]);
+        const b = this.pointForStep(state.route[index]);
+        const color = state.route[index].mode === "gate" ? 0x71d5ff : state.route[index].mode === "impulse" ? 0xf5d760 : 0xc49cff;
         this.effects.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color, alpha: 0.72, width: 2.2 });
         const t = (this.routePhase * 0.18 + index * 0.17) % 1;
         this.effects.circle(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 4).fill({ color, alpha: 0.95 });
@@ -485,6 +495,8 @@ export class GalaxyViewport {
 
     const routeCoords = new Set(state.route.map((step) => step.coord));
     const search = state.search.trim().toLowerCase();
+    const originEndpoint = endpointById.get(state.origin);
+    const destinationEndpoint = endpointById.get(state.destination);
 
     for (const region of regions) {
       const rect = this.rectFor(region);
@@ -492,18 +504,20 @@ export class GalaxyViewport {
       const visible = state.activeZones.has(region.zone) && (!search || `${region.coord} ${region.name} ${region.slug} ${region.zone}`.toLowerCase().includes(search));
       const active = region.coord === state.selected;
       const inRoute = routeCoords.has(region.coord);
-      const origin = region.coord === state.origin;
-      const destination = region.coord === state.destination;
+      const origin = region.coord === originEndpoint?.region;
+      const destination = region.coord === destinationEndpoint?.region;
       const gateCount = gatesByCoord.get(region.coord)?.length ?? 0;
 
       const tile = new Graphics();
       tile.eventMode = "static";
       tile.cursor = "pointer";
       tile.alpha = visible ? 1 : 0.18;
-      tile.poly(chamferPoints(rect.x, rect.y, rect.w, rect.h, Math.max(8, this.layout.cell * 0.14)))
+      tile.rect(rect.x, rect.y, rect.w, rect.h)
         .fill({ color, alpha: state.layers.threat ? 0.35 : 0.24 })
         .stroke({ color, alpha: active ? 1 : 0.55, width: active ? 2.4 : 1.2 });
       tile.rect(rect.x + 8, rect.y + 6, Math.max(12, rect.w * 0.36), 2).fill({ color, alpha: 0.26 });
+      tile.moveTo(rect.x + rect.w / 2, rect.y).lineTo(rect.x + rect.w / 2, rect.y + rect.h).stroke({ color: 0x02040a, alpha: 0.42, width: 1 });
+      tile.moveTo(rect.x, rect.y + rect.h / 2).lineTo(rect.x + rect.w, rect.y + rect.h / 2).stroke({ color: 0x02040a, alpha: 0.42, width: 1 });
 
       if (inRoute) {
         tile.poly(chamferPoints(rect.x + 4, rect.y + 4, rect.w - 8, rect.h - 8, Math.max(6, this.layout.cell * 0.11)))
@@ -520,13 +534,18 @@ export class GalaxyViewport {
         if (this.hovered === region.coord) this.hovered = null;
       });
       tile.on("pointertap", (event) => {
-        const original = event as unknown as { altKey?: boolean; shiftKey?: boolean };
+        const original = event as unknown as { altKey?: boolean; shiftKey?: boolean; global?: { x: number; y: number } };
         if (this.suppressNextTap) {
           this.suppressNextTap = false;
           return;
         }
-        if (original.shiftKey) this.onSetDestination(region.coord);
-        else if (original.altKey) this.onSetOrigin(region.coord);
+        const point = original.global ? this.screenToWorld(original.global.x, original.global.y) : this.pointFor(region);
+        const mapX = clamp(((point.x - this.layout.originX) / this.layout.width) * GALAXY_SIZE, region.xMin, region.xMax - 1);
+        const mapZ = clamp(((point.y - this.layout.originY) / this.layout.height) * GALAXY_SIZE, region.zMin, region.zMax - 1);
+        const sector = sectorForPoint(region, mapX, mapZ);
+        const endpointId = `sector:${region.coord}:${sector}`;
+        if (original.shiftKey) this.onSetDestination(endpointId);
+        else if (original.altKey) this.onSetOrigin(endpointId);
         else this.onSelect(region.coord);
       });
 
@@ -546,6 +565,51 @@ export class GalaxyViewport {
         this.drawHudText(this.labels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
       }
     }
+
+    for (const location of locations) {
+      if (location.hidden || !location.sector || !state.activeZones.has(location.zone)) continue;
+      const region = byCoord.get(location.region);
+      const point = this.pointForLocation(location);
+      if (!region || !point) continue;
+      const visible = !search || `${location.name} ${location.kind} ${location.region} ${location.zone} ${location.resources?.join(" ") ?? ""}`.toLowerCase().includes(search);
+      const marker = new Graphics();
+      marker.eventMode = "static";
+      marker.cursor = "pointer";
+      marker.alpha = visible ? 1 : 0.18;
+      const markerColor = this.locationColor(location);
+      if (location.kind === "gate") {
+        marker.poly([point.x, point.y - 7, point.x + 7, point.y, point.x, point.y + 7, point.x - 7, point.y])
+          .fill({ color: 0x07101e, alpha: 0.94 })
+          .stroke({ color: markerColor, alpha: 0.92, width: 1.8 });
+      } else if (location.kind === "belt") {
+        marker.circle(point.x, point.y, 4.8).stroke({ color: markerColor, alpha: 0.92, width: 2 });
+      } else {
+        marker.circle(point.x, point.y, 4.6).fill({ color: markerColor, alpha: 0.9 });
+      }
+      marker.on("pointertap", (event) => {
+        const original = event as unknown as { altKey?: boolean; shiftKey?: boolean };
+        if (this.suppressNextTap) {
+          this.suppressNextTap = false;
+          return;
+        }
+        const endpointId = `location:${location.id}`;
+        if (original.shiftKey) this.onSetDestination(endpointId);
+        else if (original.altKey) this.onSetOrigin(endpointId);
+        else this.onSelect(location.region);
+      });
+      this.sectors.addChild(marker);
+    }
+  }
+
+  private locationColor(location: MapLocation): number {
+    return ({
+      station: 0xecf5ff,
+      planet: 0x58e794,
+      belt: 0xf5d760,
+      gate: 0x71d5ff,
+      wreck: 0xff9b54,
+      system: 0xc49cff
+    })[location.kind];
   }
 
   private drawGateNode(x: number, y: number, alpha: number): void {

@@ -6,7 +6,7 @@ export const SECTOR_SIZE = 4096;
 export const GALAXY_COLUMNS = 8;
 export const GALAXY_ROWS = 8;
 export const GALAXY_SIZE = REGION_SIZE * GALAXY_COLUMNS;
-export const GENERATED_AT = "2026-06-28T05:21:36.086Z";
+export const GENERATED_AT = "2026-06-28T05:28:33.528Z";
 export const GENERATED_SOURCE = "https://wiki.starbroken.net/reference/galaxy-map-roster.html";
 
 export const generatedRegions = [
@@ -3863,7 +3863,7 @@ export const generatedLocations = [
     "details": {
       "radius": "1600",
       "density": "0.99",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -3887,7 +3887,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -3911,7 +3911,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -3935,7 +3935,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -3982,7 +3982,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4006,7 +4006,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4053,7 +4053,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4077,7 +4077,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4101,7 +4101,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4125,7 +4125,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4150,7 +4150,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4174,7 +4174,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4199,7 +4199,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4224,7 +4224,7 @@ export const generatedLocations = [
     "details": {
       "radius": "1900",
       "density": "0.99",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4249,7 +4249,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4273,7 +4273,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4298,7 +4298,7 @@ export const generatedLocations = [
     "details": {
       "radius": "1200",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4323,7 +4323,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4347,7 +4347,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4371,7 +4371,7 @@ export const generatedLocations = [
     "details": {
       "radius": "1700",
       "density": "0.99",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4396,7 +4396,7 @@ export const generatedLocations = [
     "details": {
       "radius": "600",
       "density": "0.5",
-      "coordinates": "(frontier/wild — location not listed)"
+      "coordinates": "(frontier/wild - location not listed)"
     },
     "resources": [
       "Raw Iron Ore",
@@ -4632,7 +4632,7 @@ export const generatedOreIndex = [
     "ore": "Raw Iridium Ore",
     "minZone": "Wild Drift (NULL)",
     "belts": 8,
-    "where": "frontier / wild drift only — locations not listed; explore to find"
+    "where": "frontier / wild drift only - locations not listed; explore to find"
   },
   {
     "ore": "Raw Iron Ore",
@@ -4644,7 +4644,7 @@ export const generatedOreIndex = [
     "ore": "Raw Platinum Ore",
     "minZone": "Frontier (FRONTIER)",
     "belts": 21,
-    "where": "frontier / wild drift only — locations not listed; explore to find"
+    "where": "frontier / wild drift only - locations not listed; explore to find"
   },
   {
     "ore": "Raw Titanium Ore",

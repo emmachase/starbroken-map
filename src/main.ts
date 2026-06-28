@@ -1,5 +1,5 @@
 import "./styles.css";
-import { byCoord, emptyRouteInfo, profiles, regions } from "./data/galaxy";
+import { byCoord, defaultDestination, defaultOrigin, emptyRouteInfo, endpointById, profiles, regions } from "./data/galaxy";
 import { GalaxyViewport } from "./render/GalaxyViewport";
 import { describeRoute, findPath } from "./routing/routeEngine";
 import { itemHtml, populateSelects, qs, qsa, readControlState, renderDetails, renderResults, renderRoutePanel, renderRouteStrip, syncControls } from "./ui/dom";
@@ -8,8 +8,8 @@ import type { AppState, RouteProfile, Zone } from "./types";
 const defaultState = (): AppState => ({
   profile: "safe",
   selected: "A1",
-  origin: "A1",
-  destination: "H8",
+  origin: defaultOrigin,
+  destination: defaultDestination,
   driveTier: 1,
   hull: "Frigate",
   useGates: true,
@@ -66,10 +66,11 @@ const render = (): void => {
 };
 
 const setRouteEndpoint = (kind: "origin" | "destination", coord: string): void => {
+  const endpoint = endpointById.get(coord);
   state[kind] = coord;
-  state.selected = coord;
+  if (endpoint) state.selected = endpoint.region;
   render();
-  toast(`${kind === "origin" ? "Origin" : "Destination"} locked: ${coord}`);
+  toast(`${kind === "origin" ? "Origin" : "Destination"} locked: ${endpoint?.label ?? coord}`);
 };
 
 const setProfile = (profile: RouteProfile): void => {
@@ -95,8 +96,8 @@ const bindDynamicItems = (): void => {
 
   const originButton = document.querySelector<HTMLButtonElement>("#setOrigin");
   const destinationButton = document.querySelector<HTMLButtonElement>("#setDestination");
-  if (originButton) originButton.onclick = () => setRouteEndpoint("origin", state.selected);
-  if (destinationButton) destinationButton.onclick = () => setRouteEndpoint("destination", state.selected);
+  if (originButton) originButton.onclick = () => setRouteEndpoint("origin", `sector:${state.selected}:NW`);
+  if (destinationButton) destinationButton.onclick = () => setRouteEndpoint("destination", `sector:${state.selected}:NW`);
 };
 
 const bindStaticControls = (): void => {

@@ -66,6 +66,23 @@ const splitList = (value) => String(value)
   .map((item) => item.trim())
   .filter(Boolean);
 
+const asciiText = (value) => String(value)
+  .replaceAll("\u00e2\u20ac\u201d", "-")
+  .replaceAll("\u2014", "-")
+  .replaceAll("\u2013", "-")
+  .replaceAll("\u00d7", "x")
+  .replaceAll("\u2192", "->")
+  .replaceAll("\u2194", "<->");
+
+const cleanObject = (value) => {
+  if (typeof value === "string") return asciiText(value);
+  if (Array.isArray(value)) return value.map(cleanObject);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanObject(item)]));
+  }
+  return value;
+};
+
 const sectorFor = (region, x, z) => {
   const east = x >= region.xMin + SECTOR_SIZE;
   const south = z >= region.zMin + SECTOR_SIZE;
@@ -201,13 +218,13 @@ export const GALAXY_SIZE = REGION_SIZE * GALAXY_COLUMNS;
 export const GENERATED_AT = ${JSON.stringify(generatedAt)};
 export const GENERATED_SOURCE = ${JSON.stringify(roster.url)};
 
-export const generatedRegions = ${JSON.stringify(regions, null, 2)} as const;
+export const generatedRegions = ${JSON.stringify(cleanObject(regions), null, 2)} as const;
 
-export const generatedLocations = ${JSON.stringify(locations, null, 2)} as const;
+export const generatedLocations = ${JSON.stringify(cleanObject(locations), null, 2)} as const;
 
 export const generatedGatePairs = ${JSON.stringify(gatePairs, null, 2)} as const;
 
-export const generatedOreIndex = ${JSON.stringify(oreIndex, null, 2)} as const;
+export const generatedOreIndex = ${JSON.stringify(cleanObject(oreIndex), null, 2)} as const;
 `;
 
 fs.writeFileSync(outPath, content);

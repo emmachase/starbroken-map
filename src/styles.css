@@ -161,6 +161,7 @@ button.active {
 
 input,
 select {
+  width: 100%;
   padding: 8px 10px;
 }
 
@@ -286,6 +287,7 @@ select {
 
 .field {
   display: grid;
+  min-width: 0;
   gap: 5px;
   margin-bottom: 9px;
   color: var(--muted);
@@ -389,8 +391,11 @@ select {
 
 .item,
 .route-step {
+  width: 100%;
   padding: 9px;
   cursor: pointer;
+  text-align: left;
+  text-transform: none;
 }
 
 .item:hover,

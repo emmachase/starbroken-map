@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starbroken NAVCOM</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">NAV</div>
+          <div>
+            <h1>STARBROKEN // NAVCOM</h1>
+            <div class="subtitle">Jump plotting / gate lanes / threat overlays</div>
+          </div>
+        </div>
+
+        <nav class="profiles" aria-label="Route profile">
+          <button class="profile active" data-profile="safe">Safe</button>
+          <button class="profile" data-profile="fast">Fast</button>
+          <button class="profile" data-profile="cheap">Cheap</button>
+          <button class="profile" data-profile="risky">Risky</button>
+        </nav>
+
+        <div class="searchbox">
+          <input id="search" type="search" placeholder="Find A1, Halcyon, NULL, r63..." autocomplete="off" />
+          <button id="reset" type="button">Reset</button>
+        </div>
+      </header>
+
+      <section class="route-strip" aria-label="Current route">
+        <div class="route-command">
+          <div class="route-kicker" id="routeProfileLabel">Safe Route</div>
+          <div class="route-main" id="routeHeadline"></div>
+        </div>
+        <div class="route-metrics" id="routeMetrics"></div>
+        <div class="layer-controls" aria-label="Map layers">
+          <label class="chip"><input id="layerGates" type="checkbox" checked /> Gates</label>
+          <label class="chip"><input id="layerThreat" type="checkbox" checked /> Threat</label>
+          <label class="chip"><input id="layerRifts" type="checkbox" /> Rifts</label>
+          <label class="chip"><input id="layerRange" type="checkbox" checked /> Range</label>
+          <label class="chip"><input id="layerLabels" type="checkbox" checked /> Labels</label>
+        </div>
+      </section>
+
+      <main class="shell">
+        <aside class="panel left">
+          <div class="panel-header">
+            <h2>Jump Plotter</h2>
+            <div id="profileHelp" class="panel-sub">Safe profile favors lower-risk lanes.</div>
+          </div>
+          <div class="panel-body">
+            <div class="section-title">Vector Setup</div>
+            <div class="row">
+              <label class="field">Origin <select id="origin"></select></label>
+              <label class="field">Destination <select id="destination"></select></label>
+            </div>
+            <div class="row">
+              <label class="field">
+                Warp Drive
+                <select id="driveTier">
+                  <option value="1">T1 / Mk I: 1 hop</option>
+                  <option value="2">T2: 2 hops</option>
+                  <option value="3">T3: 3 hops</option>
+                  <option value="4">T4: 5 hops</option>
+                  <option value="5">T5: unlimited</option>
+                </select>
+              </label>
+              <label class="field">
+                Hull
+                <select id="hullClass">
+                  <option value="Frigate">Frigate</option>
+                  <option value="Destroyer">Destroyer</option>
+                  <option value="Cruiser">Cruiser</option>
+                  <option value="Battlecruiser">Battlecruiser</option>
+                  <option value="Colossal">Colossal</option>
+                </select>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label class="chip"><input id="useGates" type="checkbox" checked /> GateNet</label>
+              <label class="chip"><input id="avoidNull" type="checkbox" /> Bypass NULL</label>
+              <label class="chip"><input id="useRange" type="checkbox" checked /> Use drive range</label>
+            </div>
+            <button id="routeBtn" type="button" class="wide">Replot Course</button>
+
+            <div class="section-title">Zone Bands</div>
+            <div class="toggle-row">
+              <label class="chip core"><input type="checkbox" class="zoneFilter" value="CORE" checked /><span class="dot"></span> CORE</label>
+              <label class="chip mid"><input type="checkbox" class="zoneFilter" value="MID" checked /><span class="dot"></span> MID</label>
+              <label class="chip frontier"><input type="checkbox" class="zoneFilter" value="FRONTIER" checked /><span class="dot"></span> FRONTIER</label>
+              <label class="chip null"><input type="checkbox" class="zoneFilter" value="NULL" checked /><span class="dot"></span> NULL</label>
+            </div>
+
+            <div class="section-title">Fuel Burn</div>
+            <div id="costReadout" class="readout"></div>
+
+            <div class="section-title">Jump Sequence</div>
+            <div id="routeSteps" class="list"></div>
+          </div>
+        </aside>
+
+        <section class="viewport-wrap">
+          <div id="galaxyViewport" class="galaxy-viewport" aria-label="Starbroken galaxy map"></div>
+          <div id="toast" class="toast">NAVCOM online</div>
+        </section>
+
+        <aside class="panel right">
+          <div class="panel-header">
+            <h2 id="detailTitle">A1 - Vega Reach</h2>
+            <div id="detailSub" class="panel-sub">CORE / vega-reach-r0</div>
+          </div>
+          <div class="panel-body">
+            <div id="detailBadge" class="readout"></div>
+            <div class="section-title">Zone Index</div>
+            <div id="stats" class="statline"></div>
+            <div class="section-title">GateNet Links</div>
+            <div id="gateList" class="list"></div>
+            <div class="section-title">Adjacent Signals</div>
+            <div id="nearby" class="list"></div>
+            <div class="section-title">Search Results</div>
+            <div id="results" class="list"></div>
+          </div>
+        </aside>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

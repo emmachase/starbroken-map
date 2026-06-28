@@ -68,9 +68,14 @@ const render = (): void => {
 const setRouteEndpoint = (kind: "origin" | "destination", coord: string): void => {
   const endpoint = endpointById.get(coord);
   state[kind] = coord;
-  if (endpoint) state.selected = endpoint.region;
+  if (endpoint) state.selected = endpoint.id;
   render();
   toast(`${kind === "origin" ? "Origin" : "Destination"} locked: ${endpoint?.label ?? coord}`);
+};
+
+const selectedRouteEndpoint = (): string | null => {
+  if (endpointById.has(state.selected)) return state.selected;
+  return byCoord.has(state.selected) ? `sector:${state.selected}:NW` : null;
 };
 
 const setProfile = (profile: RouteProfile): void => {
@@ -87,6 +92,12 @@ const readAndRender = (): void => {
 const bindDynamicItems = (): void => {
   for (const node of qsa<HTMLElement>(".item, .route-step")) {
     node.onclick = () => {
+      const endpoint = node.dataset.endpoint;
+      if (endpoint && endpointById.has(endpoint)) {
+        state.selected = endpoint;
+        render();
+        return;
+      }
       const coord = node.dataset.coord;
       if (!coord || !byCoord.has(coord)) return;
       state.selected = coord;
@@ -96,8 +107,14 @@ const bindDynamicItems = (): void => {
 
   const originButton = document.querySelector<HTMLButtonElement>("#setOrigin");
   const destinationButton = document.querySelector<HTMLButtonElement>("#setDestination");
-  if (originButton) originButton.onclick = () => setRouteEndpoint("origin", `sector:${state.selected}:NW`);
-  if (destinationButton) destinationButton.onclick = () => setRouteEndpoint("destination", `sector:${state.selected}:NW`);
+  if (originButton) originButton.onclick = () => {
+    const endpoint = selectedRouteEndpoint();
+    if (endpoint) setRouteEndpoint("origin", endpoint);
+  };
+  if (destinationButton) destinationButton.onclick = () => {
+    const endpoint = selectedRouteEndpoint();
+    if (endpoint) setRouteEndpoint("destination", endpoint);
+  };
 };
 
 const bindStaticControls = (): void => {

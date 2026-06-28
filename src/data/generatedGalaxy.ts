@@ -6,7 +6,7 @@ export const SECTOR_SIZE = 4096;
 export const GALAXY_COLUMNS = 8;
 export const GALAXY_ROWS = 8;
 export const GALAXY_SIZE = REGION_SIZE * GALAXY_COLUMNS;
-export const GENERATED_AT = "2026-06-28T05:28:33.528Z";
+export const GENERATED_AT = "2026-06-28T06:36:38.530Z";
 export const GENERATED_SOURCE = "https://wiki.starbroken.net/reference/galaxy-map-roster.html";
 
 export const generatedRegions = [
@@ -3578,7 +3578,7 @@ export const generatedLocations = [
     "density": 0.9
   },
   {
-    "id": "belt-asteroid-belt-b1",
+    "id": "belt-asteroid-belt-b1-16017-6926",
     "name": "ASTEROID BELT",
     "kind": "belt",
     "region": "B1",
@@ -3713,7 +3713,7 @@ export const generatedLocations = [
     "density": 0.5
   },
   {
-    "id": "belt-asteroid-belt-c3",
+    "id": "belt-asteroid-belt-c3-19935-19277",
     "name": "ASTEROID BELT",
     "kind": "belt",
     "region": "C3",
@@ -4187,7 +4187,7 @@ export const generatedLocations = [
     "density": 0.5
   },
   {
-    "id": "belt-asteroid-belt-g4",
+    "id": "belt-asteroid-belt-g4-33",
     "name": "ASTEROID BELT",
     "kind": "belt",
     "region": "G4",
@@ -4212,7 +4212,7 @@ export const generatedLocations = [
     "density": 0.5
   },
   {
-    "id": "belt-asteroid-belt-g4",
+    "id": "belt-asteroid-belt-g4-34",
     "name": "ASTEROID BELT",
     "kind": "belt",
     "region": "G4",

@@ -4,12 +4,12 @@ export const chamferPoints = (x: number, y: number, w: number, h: number, r: num
   const c = Math.min(r, w / 2, h / 2);
   return [
     x + c, y,
-    x + w - c * 0.55, y,
-    x + w, y + c * 0.55,
+    x + w, y,
+    x + w, y,
     x + w, y + h - c,
     x + w - c, y + h,
-    x + c * 0.55, y + h,
-    x, y + h - c * 0.55,
+    x, y + h,
+    x, y + h,
     x, y + c
   ];
 };

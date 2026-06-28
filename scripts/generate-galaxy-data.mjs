@@ -150,22 +150,41 @@ const locationRows = [
 ];
 
 const locations = [];
+const usedLocationIds = new Map();
+
+const uniqueLocationId = (baseId, fallbackDiscriminator) => {
+  const count = usedLocationIds.get(baseId) ?? 0;
+  usedLocationIds.set(baseId, count + 1);
+  if (count === 0) return baseId;
+  const discriminator = slugify(fallbackDiscriminator || String(count + 1)) || String(count + 1);
+  const candidate = `${baseId}-${discriminator}`;
+  if (!usedLocationIds.has(candidate)) {
+    usedLocationIds.set(candidate, 1);
+    return candidate;
+  }
+  let suffix = count + 1;
+  while (usedLocationIds.has(`${candidate}-${suffix}`)) suffix += 1;
+  const unique = `${candidate}-${suffix}`;
+  usedLocationIds.set(unique, 1);
+  return unique;
+};
 
 for (const spec of locationRows) {
   if (!spec.table) continue;
-  for (const row of spec.table.slice(1)) {
+  for (const [rowIndex, row] of spec.table.slice(1).entries()) {
     const raw = Object.fromEntries(spec.columns.map((key, index) => [key, row[index] ?? ""]));
     const region = byCoord.get(raw.region);
     if (!region) continue;
     const parsed = parseCoordinate(raw.coordinates);
     const baseId = `${spec.kind}-${slugify(raw.name)}-${raw.region.toLowerCase()}`;
+    const id = uniqueLocationId(baseId, parsed ? `${parsed.x}-${parsed.z}` : `${rowIndex + 1}`);
     const details = {};
     for (const [key, value] of Object.entries(raw)) {
       if (!["name", "region", "security", "coordinates", "minerals", "ores"].includes(key) && value && value !== "-") details[key] = value;
     }
     if (raw.coordinates) details.coordinates = raw.coordinates;
     const location = {
-      id: baseId,
+      id,
       name: raw.name,
       kind: spec.kind,
       region: raw.region,

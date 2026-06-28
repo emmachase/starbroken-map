@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import { byCoord, endpointById, GALAXY_SIZE, gates, gatesByCoord, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
-import type { AppState, MapLocation, Region, RouteStep } from "../types";
+import type { AppState, MapLocation, Region, RouteStep, SectorName } from "../types";
 import { chamferPoints, clamp, fitText } from "./geometry";
 
 interface GalaxyViewportOptions {
@@ -42,10 +42,17 @@ interface LodState {
   bucket: string;
   regionAlpha: number;
   sectorAlpha: number;
-  labelMode: "region" | "sector" | "none";
+  regionLabelAlpha: number;
+  sectorRegionLabelAlpha: number;
+  sectorLabelAlpha: number;
 }
 
-const MAX_ZOOM = 8;
+type HitMode = "region" | "sector" | "component";
+
+const MAX_ZOOM = 100;
+const SECTOR_LOD_THRESHOLD = 1.4;
+const COMPONENT_LOD_THRESHOLD = 3.8;
+const LOD12_TRANSITION_SPEED = 0.1;
 
 const stars = Array.from({ length: 160 }, (_, index) => ({
   x: ((index * 97) % 997) / 997,
@@ -66,8 +73,13 @@ export class GalaxyViewport {
   private readonly grid = new Graphics();
   private readonly overlays = new Graphics();
   private readonly routeLayer = new Graphics();
-  private readonly sectors = new Container();
-  private readonly labels = new Container();
+  private readonly regionLayer = new Container();
+  private readonly sectorLayer = new Container();
+  private readonly contentLayer = new Container();
+  private readonly axisLabels = new Container();
+  private readonly regionLabels = new Container();
+  private readonly sectorRegionLabels = new Container();
+  private readonly sectorLabels = new Container();
   private readonly effects = new Graphics();
   private readonly particlesLayer = new Graphics();
   private readonly resizeObserver: ResizeObserver;
@@ -75,6 +87,7 @@ export class GalaxyViewport {
   private readonly particles: Particle[] = [];
   private state: AppState | null = null;
   private hovered: string | null = null;
+  private hoveredEndpoint: string | null = null;
   private layout: Layout = { cell: 80, originX: 60, originY: 60, width: 8 * 80, height: 8 * 80 };
   private isDragging = false;
   private suppressNextTap = false;
@@ -82,7 +95,12 @@ export class GalaxyViewport {
   private cameraStart = { x: 0, y: 0 };
   private routePhase = 0;
   private lastFocus = "";
-  private lastRenderBucket = "";
+  private lastGeometryBucket = "";
+  private lastHitMode: HitMode | null = null;
+  private lastStaticSignature = "";
+  private renderedSelected = "";
+  private renderedSearch = "";
+  private lod12Blend = 0;
 
   constructor(options: GalaxyViewportOptions) {
     this.root = options.root;
@@ -102,7 +120,20 @@ export class GalaxyViewport {
     });
 
     this.root.appendChild(this.app.canvas);
-    this.world.addChild(this.grid, this.overlays, this.routeLayer, this.sectors, this.labels, this.effects, this.particlesLayer);
+    this.world.addChild(
+      this.grid,
+      this.overlays,
+      this.routeLayer,
+      this.regionLayer,
+      this.sectorLayer,
+      this.contentLayer,
+      this.axisLabels,
+      this.regionLabels,
+      this.sectorRegionLabels,
+      this.sectorLabels,
+      this.effects,
+      this.particlesLayer
+    );
     this.screenLayer.addChild(this.background, this.world);
     this.app.stage.addChild(this.screenLayer);
     this.resizeObserver.observe(this.root);
@@ -112,19 +143,29 @@ export class GalaxyViewport {
   }
 
   setState(state: AppState): void {
-    const previousSelected = this.state?.selected;
-    const previousSearch = this.state?.search;
+    const previousSelected = this.renderedSelected;
+    const previousSearch = this.renderedSearch;
     this.state = state;
-    this.renderStatic();
+    const signature = this.staticSignature(state);
+    if (signature !== this.lastStaticSignature) {
+      this.renderStatic();
+    } else {
+      this.drawAnimatedEffects();
+    }
     if (previousSelected && state.selected !== previousSelected) this.focusSelected();
     if (previousSearch !== undefined && state.search !== previousSearch) this.ensureFocusForSearch();
+    this.renderedSelected = state.selected;
+    this.renderedSearch = state.search;
   }
 
   focusSelected(immediate = false): void {
-    const region = this.state ? byCoord.get(this.state.selected) : undefined;
+    if (!this.state) return;
+    const endpoint = endpointById.get(this.state.selected);
+    const region = endpoint ? byCoord.get(endpoint.region) : byCoord.get(this.state.selected);
     if (!region) return;
-    const point = this.pointFor(region);
-    const nextScale = Math.max(this.camera.targetScale, this.root.clientWidth < 720 ? 1.18 : 1);
+    const point = endpoint ? this.pointForCoords(endpoint.x, endpoint.z) : this.pointFor(region);
+    const focusScale = endpoint?.kind === "location" ? 5.2 : endpoint?.kind === "sector" ? 2.2 : this.root.clientWidth < 720 ? 1.18 : 1;
+    const nextScale = Math.max(this.camera.targetScale, focusScale);
     this.camera.targetScale = clamp(nextScale, 0.7, MAX_ZOOM);
     this.camera.targetX = this.root.clientWidth / 2 - point.x * this.camera.targetScale;
     this.camera.targetY = this.root.clientHeight / 2 - point.y * this.camera.targetScale;
@@ -225,7 +266,10 @@ export class GalaxyViewport {
     this.camera.y += (this.camera.targetY - this.camera.y) * 0.16;
     this.camera.scale += (this.camera.targetScale - this.camera.scale) * 0.16;
     this.applyCamera();
-    this.renderZoomSensitiveLayers();
+    this.updateLodTransition();
+    this.updateLodVisibility();
+    this.updateHitMode();
+    this.redrawZoomGeometryIfNeeded();
     this.updateParticles();
     this.drawAnimatedEffects();
   }
@@ -255,44 +299,121 @@ export class GalaxyViewport {
 
   private renderStatic(): void {
     if (!this.state) return;
-    this.lastRenderBucket = this.renderBucket();
-    this.labels.removeChildren();
+    this.lastStaticSignature = this.staticSignature(this.state);
+    this.axisLabels.removeChildren();
+    this.regionLabels.removeChildren();
+    this.sectorRegionLabels.removeChildren();
+    this.sectorLabels.removeChildren();
     this.drawGrid();
     this.drawOverlays();
     this.drawRouteBase();
     this.drawSectors();
+    this.updateLodTransition(true);
+    this.updateLodVisibility();
+    this.lastHitMode = this.hitMode();
+    this.lastGeometryBucket = this.geometryBucket();
     this.ensureFocusForSearch();
   }
 
-  private renderZoomSensitiveLayers(): void {
-    if (!this.state) return;
-    const bucket = this.renderBucket();
-    if (bucket === this.lastRenderBucket) return;
-    this.lastRenderBucket = bucket;
-    this.labels.removeChildren();
-    this.drawGrid();
-    this.drawOverlays();
-    this.drawRouteBase();
-    this.drawSectors();
+  private staticSignature(state: AppState): string {
+    return [
+      state.origin,
+      state.destination,
+      state.driveTier,
+      state.hull,
+      state.useGates,
+      state.avoidNull,
+      state.useRange,
+      state.search,
+      [...state.activeZones].sort().join(","),
+      Object.entries(state.layers).map(([key, value]) => `${key}:${value}`).join(","),
+      state.route.map((step) => `${step.id}:${step.mode}:${step.x}:${step.z}`).join("|")
+    ].join(";");
   }
 
-  private renderBucket(): string {
-    const scaleBucket = Math.round(this.camera.scale * 8) / 8;
-    return `${scaleBucket}:${this.lodState().bucket}`;
+  private redrawZoomGeometryIfNeeded(): void {
+    if (!this.state) return;
+    const bucket = this.geometryBucket();
+    if (bucket === this.lastGeometryBucket) return;
+    this.lastGeometryBucket = bucket;
+    this.drawGrid(false);
+    this.drawOverlays();
+    this.drawRouteBase();
+    this.drawSectors(false);
+    this.updateLodVisibility();
+  }
+
+  private updateHitMode(): void {
+    const mode = this.hitMode();
+    if (mode === this.lastHitMode) return;
+    this.lastHitMode = mode;
+    this.hovered = null;
+    this.hoveredEndpoint = null;
+    this.drawSectors(false);
+  }
+
+  private geometryBucket(): string {
+    return String(Math.round((this.camera.scale || this.camera.targetScale || 1) * 8) / 8);
+  }
+
+  private updateLodTransition(immediate = false): void {
+    const scale = this.camera.scale || this.camera.targetScale || 1;
+    const target = scale >= SECTOR_LOD_THRESHOLD ? 1 : 0;
+    if (immediate) {
+      this.lod12Blend = target;
+      return;
+    }
+    this.lod12Blend += (target - this.lod12Blend) * LOD12_TRANSITION_SPEED;
+    if (Math.abs(target - this.lod12Blend) < 0.015) this.lod12Blend = target;
   }
 
   private lodState(): LodState {
     const scale = this.camera.scale || this.camera.targetScale || 1;
-    if (scale < 1.4) return { bucket: "regions", regionAlpha: 1, sectorAlpha: 0.18, labelMode: "region" };
     if (scale < 2.5) {
-      const t = (scale - 1.4) / 1.1;
-      return { bucket: "sectors", regionAlpha: 1 - t * 0.72, sectorAlpha: 0.28 + t * 0.64, labelMode: "sector" };
+      const t = this.lod12Blend;
+      if (t <= 0.001) return { bucket: "regions", regionAlpha: 1, sectorAlpha: 0.18, regionLabelAlpha: 1, sectorRegionLabelAlpha: 0, sectorLabelAlpha: 0 };
+      if (t >= 0.999) return { bucket: "sectors", regionAlpha: 0.28, sectorAlpha: 0.92, regionLabelAlpha: 0, sectorRegionLabelAlpha: 1, sectorLabelAlpha: 1 };
+      return {
+        bucket: "lod12-transition",
+        regionAlpha: 1 + (0.28 - 1) * t,
+        sectorAlpha: 0.18 + (0.92 - 0.18) * t,
+        regionLabelAlpha: 1 - t,
+        sectorRegionLabelAlpha: t,
+        sectorLabelAlpha: t
+      };
     }
     if (scale < 3.8) {
       const t = (scale - 2.5) / 1.3;
-      return { bucket: "fade", regionAlpha: 0.28 * (1 - t), sectorAlpha: 0.92 * (1 - t), labelMode: t > 0.45 ? "none" : "sector" };
+      return {
+        bucket: "fade",
+        regionAlpha: 0.28 * (1 - t),
+        sectorAlpha: 0.34 + 0.58 * (1 - t),
+        regionLabelAlpha: 0,
+        sectorRegionLabelAlpha: 1 - t,
+        sectorLabelAlpha: 1 - t
+      };
     }
-    return { bucket: "contents", regionAlpha: 0, sectorAlpha: 0, labelMode: "none" };
+    return { bucket: "contents", regionAlpha: 0, sectorAlpha: 0.34, regionLabelAlpha: 0, sectorRegionLabelAlpha: 0, sectorLabelAlpha: 0 };
+  }
+
+  private hitMode(): HitMode {
+    const scale = this.camera.scale || this.camera.targetScale || 1;
+    if (scale >= COMPONENT_LOD_THRESHOLD) return "component";
+    return scale >= SECTOR_LOD_THRESHOLD ? "sector" : "region";
+  }
+
+  private updateLodVisibility(): void {
+    const lod = this.lodState();
+    this.regionLayer.alpha = lod.regionAlpha;
+    this.regionLayer.visible = lod.regionAlpha > 0.01;
+    this.sectorLayer.alpha = lod.sectorAlpha;
+    this.sectorLayer.visible = lod.sectorAlpha > 0.01;
+    this.regionLabels.visible = lod.regionLabelAlpha > 0.01;
+    this.regionLabels.alpha = lod.regionLabelAlpha;
+    this.sectorRegionLabels.visible = lod.sectorRegionLabelAlpha > 0.01;
+    this.sectorRegionLabels.alpha = lod.sectorRegionLabelAlpha;
+    this.sectorLabels.visible = lod.sectorLabelAlpha > 0.01;
+    this.sectorLabels.alpha = lod.sectorLabelAlpha;
   }
 
   private worldWidth(screenPixels: number): number {
@@ -363,7 +484,7 @@ export class GalaxyViewport {
     }
   }
 
-  private drawGrid(): void {
+  private drawGrid(includeLabels = true): void {
     const width = this.layout.width + 180;
     const height = this.layout.height + 180;
     this.grid.clear();
@@ -371,15 +492,16 @@ export class GalaxyViewport {
     for (let y = 0; y < height; y += 48) this.grid.moveTo(0, y).lineTo(width, y).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
     for (let y = 0; y < height; y += 5) this.grid.rect(0, y, width, 1).fill({ color: 0xffffff, alpha: 0.018 });
 
+    if (!includeLabels) return;
     for (let index = 0; index < 8; index += 1) {
       const x = this.layout.originX + index * this.layout.cell + this.layout.cell / 2;
       const y = this.layout.originY - 24;
-      this.drawHudText(this.labels, String.fromCharCode(65 + index), x, y, 0xa9b8cf, 12, "center");
+      this.drawHudText(this.axisLabels, String.fromCharCode(65 + index), x, y, 0xa9b8cf, 12, "center");
     }
     for (let index = 0; index < 8; index += 1) {
       const x = this.layout.originX - 24;
       const y = this.layout.originY + index * this.layout.cell + this.layout.cell / 2 - 7;
-      this.drawHudText(this.labels, String(index + 1), x, y, 0xa9b8cf, 12, "center");
+      this.drawHudText(this.axisLabels, String(index + 1), x, y, 0xa9b8cf, 12, "center");
     }
   }
 
@@ -410,7 +532,7 @@ export class GalaxyViewport {
         const maxRow = Math.min(7, origin.row + range);
         const start = this.rectFor(byCoord.get(`${String.fromCharCode(65 + minCol)}${minRow + 1}`)!);
         const end = this.rectFor(byCoord.get(`${String.fromCharCode(65 + maxCol)}${maxRow + 1}`)!);
-        this.overlays.poly(chamferPoints(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18))
+        this.overlays.rect(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18)
           .stroke({ color: 0xc49cff, alpha: 0.72, width: this.worldWidth(2) });
       }
     }
@@ -452,15 +574,31 @@ export class GalaxyViewport {
     this.effects.clear();
     const pulse = 0.55 + Math.sin(this.routePhase * 2.8) * 0.25;
     const lod = this.lodState();
+    const hitMode = this.hitMode();
     const overlayAlpha = Math.max(lod.regionAlpha, lod.sectorAlpha);
 
-    if (this.hovered && overlayAlpha > 0) {
+    if (this.hoveredEndpoint) {
+      const endpoint = endpointById.get(this.hoveredEndpoint);
+      if (endpoint?.kind === "sector") {
+        const region = byCoord.get(endpoint.region);
+        if (region) this.drawSectorFill(this.hoveredEndpoint, zoneColors[region.zone], 0.16 + pulse * 0.08, hitMode);
+      } else {
+        this.drawEndpointGlow(this.hoveredEndpoint, 0x71d5ff, 0.22 + pulse * 0.22, 8, hitMode);
+      }
+    } else if (this.hovered && hitMode === "region" && overlayAlpha > 0) {
       const region = byCoord.get(this.hovered);
-      if (region) this.drawGlow(region, 0x71d5ff, (0.18 + pulse * 0.24) * overlayAlpha, 10);
+      if (region) this.drawRegionFill(region, zoneColors[region.zone], (0.12 + pulse * 0.08) * overlayAlpha);
     }
 
-    const selected = byCoord.get(state.selected);
-    if (selected && overlayAlpha > 0) this.drawGlow(selected, zoneColors[selected.zone], (0.28 + pulse * 0.3) * overlayAlpha, 14);
+    if (endpointById.has(state.selected)) {
+      const endpoint = endpointById.get(state.selected);
+      const selectedRegion = endpoint ? byCoord.get(endpoint.region) : undefined;
+      const pad = endpoint?.kind === "sector" ? this.worldWidth(2) : 8;
+      this.drawEndpointGlow(state.selected, selectedRegion ? zoneColors[selectedRegion.zone] : 0xc49cff, 0.34 + pulse * 0.28, pad, hitMode);
+    } else {
+      const selected = byCoord.get(state.selected);
+      if (selected && hitMode === "region" && overlayAlpha > 0) this.drawGlow(selected, zoneColors[selected.zone], (0.28 + pulse * 0.3) * overlayAlpha, this.worldWidth(3));
+    }
 
     if (state.layers.rifts) {
       for (const region of regions.filter((item) => item.zone === "FRONTIER" || item.zone === "NULL")) {
@@ -484,8 +622,51 @@ export class GalaxyViewport {
 
   private drawGlow(region: Region, color: number, alpha: number, pad: number): void {
     const rect = this.rectFor(region);
-    this.effects.poly(chamferPoints(rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2, Math.max(10, this.layout.cell * 0.18)))
+    this.effects.rect(rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2)
       .stroke({ color, alpha, width: this.worldWidth(3) });
+  }
+
+  private drawRegionFill(region: Region, color: number, alpha: number): void {
+    const rect = this.rectFor(region);
+    this.effects.rect(rect.x, rect.y, rect.w, rect.h).fill({ color, alpha });
+  }
+
+  private drawSectorFill(endpointId: string, color: number, alpha: number, hitMode = this.hitMode()): void {
+    if (hitMode !== "sector") return;
+    const endpoint = endpointById.get(endpointId);
+    const region = endpoint ? byCoord.get(endpoint.region) : undefined;
+    if (!endpoint || !region) return;
+    const sector = region.sectors.find((item) => item.id === endpoint.sector);
+    if (!sector) return;
+    const start = this.pointForCoords(sector.xMin, sector.zMin);
+    const end = this.pointForCoords(sector.xMax, sector.zMax);
+    this.effects.rect(start.x, start.y, end.x - start.x, end.y - start.y)
+      .fill({ color, alpha });
+  }
+
+  private drawEndpointGlow(endpointId: string, color: number, alpha: number, pad: number, hitMode = this.hitMode()): void {
+    const endpoint = endpointById.get(endpointId);
+    if (!endpoint) return;
+    const region = byCoord.get(endpoint.region);
+    if (!region) return;
+
+    if (endpoint.kind === "sector") {
+      if (hitMode !== "sector") return;
+      const sector = region.sectors.find((item) => item.id === endpoint.sector);
+      if (!sector) return;
+      const start = this.pointForCoords(sector.xMin, sector.zMin);
+      const end = this.pointForCoords(sector.xMax, sector.zMax);
+      this.effects.rect(start.x - pad, start.y - pad, end.x - start.x + pad * 2, end.y - start.y + pad * 2)
+        .stroke({ color, alpha, width: this.worldWidth(3) });
+      return;
+    }
+
+    const point = this.pointForCoords(endpoint.x, endpoint.z);
+    const radius = Math.max(this.worldWidth(12), this.layout.cell * 0.035) + pad * 0.2;
+    this.effects.circle(point.x, point.y, radius)
+      .stroke({ color, alpha, width: this.worldWidth(3) });
+    this.effects.circle(point.x, point.y, Math.max(this.worldWidth(3), radius * 0.22))
+      .fill({ color, alpha: Math.min(0.5, alpha * 0.75) });
   }
 
   private updateParticles(): void {
@@ -530,102 +711,87 @@ export class GalaxyViewport {
     }
   }
 
-  private drawSectors(): void {
+  private drawSectors(includeLabels = true): void {
     const state = this.state;
     if (!state) return;
-    this.sectors.removeChildren();
+    this.regionLayer.removeChildren();
+    this.sectorLayer.removeChildren();
+    this.contentLayer.removeChildren();
+    if (includeLabels) {
+      this.regionLabels.removeChildren();
+      this.sectorRegionLabels.removeChildren();
+      this.sectorLabels.removeChildren();
+    }
 
     const routeCoords = new Set(state.route.map((step) => step.coord));
     const search = state.search.trim().toLowerCase();
     const originEndpoint = endpointById.get(state.origin);
     const destinationEndpoint = endpointById.get(state.destination);
-    const lod = this.lodState();
+    const hitMode = this.hitMode();
 
     for (const region of regions) {
       const rect = this.rectFor(region);
       const color = zoneColors[region.zone];
       const visible = state.activeZones.has(region.zone) && (!search || `${region.coord} ${region.name} ${region.slug} ${region.zone}`.toLowerCase().includes(search));
-      const active = region.coord === state.selected;
       const inRoute = routeCoords.has(region.coord);
       const origin = region.coord === originEndpoint?.region;
       const destination = region.coord === destinationEndpoint?.region;
       const gateCount = gatesByCoord.get(region.coord)?.length ?? 0;
 
-      const tile = new Graphics();
-      tile.eventMode = "static";
-      tile.cursor = "pointer";
-      tile.alpha = visible ? 1 : 0.18;
-      tile.rect(rect.x, rect.y, rect.w, rect.h).fill({ color: 0x000000, alpha: 0.001 });
+      const regionGraphic = new Graphics();
+      regionGraphic.alpha = visible ? 1 : 0.18;
+      regionGraphic.rect(rect.x, rect.y, rect.w, rect.h)
+        .fill({ color, alpha: state.layers.threat ? 0.35 : 0.24 })
+        .stroke({ color, alpha: 0.55, width: this.worldWidth(1.2) });
+      regionGraphic.rect(rect.x + 8, rect.y + 6, Math.max(12, rect.w * 0.36), this.worldWidth(2)).fill({ color, alpha: 0.26 });
 
-      if (lod.regionAlpha > 0) {
-        tile.rect(rect.x, rect.y, rect.w, rect.h)
-          .fill({ color, alpha: (state.layers.threat ? 0.35 : 0.24) * lod.regionAlpha })
-          .stroke({ color, alpha: (active ? 1 : 0.55) * lod.regionAlpha, width: this.worldWidth(active ? 2.4 : 1.2) });
-        tile.rect(rect.x + 8, rect.y + 6, Math.max(12, rect.w * 0.36), this.worldWidth(2)).fill({ color, alpha: 0.26 * lod.regionAlpha });
+      const sectorGraphic = new Graphics();
+      sectorGraphic.alpha = visible ? 1 : 0.18;
+      for (const sector of region.sectors) {
+        const start = this.pointForCoords(sector.xMin, sector.zMin);
+        const end = this.pointForCoords(sector.xMax, sector.zMax);
+        const sectorActive = (origin && originEndpoint?.sector === sector.id) || (destination && destinationEndpoint?.sector === sector.id);
+        sectorGraphic.rect(start.x, start.y, end.x - start.x, end.y - start.y)
+          .fill({ color, alpha: sectorActive ? 0.18 : 0.055 })
+          .stroke({ color, alpha: sectorActive ? 0.92 : 0.45, width: this.worldWidth(sectorActive ? 1.8 : 1) });
       }
 
-      if (lod.sectorAlpha > 0) {
+      if (origin || destination) this.drawSectorMark(regionGraphic, rect, origin ? "START" : "END", origin ? 0x71d5ff : 0xc49cff, includeLabels);
+
+      this.regionLayer.addChild(regionGraphic);
+      this.sectorLayer.addChild(sectorGraphic);
+
+      if (hitMode === "region") {
+        const hitTile = this.createMapHitTarget(region, rect.x, rect.y, rect.w, rect.h);
+        this.contentLayer.addChild(hitTile);
+      } else if (hitMode === "sector") {
         for (const sector of region.sectors) {
           const start = this.pointForCoords(sector.xMin, sector.zMin);
           const end = this.pointForCoords(sector.xMax, sector.zMax);
-          const sectorActive = (origin && originEndpoint?.sector === sector.id) || (destination && destinationEndpoint?.sector === sector.id);
-          tile.rect(start.x, start.y, end.x - start.x, end.y - start.y)
-            .fill({ color, alpha: (sectorActive ? 0.18 : 0.055) * lod.sectorAlpha })
-            .stroke({ color, alpha: (sectorActive ? 0.92 : 0.45) * lod.sectorAlpha, width: this.worldWidth(sectorActive ? 1.8 : 1) });
+          const hitTile = this.createMapHitTarget(region, start.x, start.y, end.x - start.x, end.y - start.y, sector.id);
+          this.contentLayer.addChild(hitTile);
         }
       }
 
-      if (inRoute && (lod.regionAlpha > 0 || lod.sectorAlpha > 0)) {
-        tile.poly(chamferPoints(rect.x + 4, rect.y + 4, rect.w - 8, rect.h - 8, Math.max(6, this.layout.cell * 0.11)))
-          .stroke({ color: 0x71d5ff, alpha: 0.88 * Math.max(lod.regionAlpha, lod.sectorAlpha), width: this.worldWidth(2) });
-      }
-
-      if ((origin || destination) && lod.regionAlpha > 0.2) this.drawSectorMark(tile, rect, origin ? "START" : "END", origin ? 0x71d5ff : 0xc49cff);
-      if (gateCount && lod.regionAlpha > 0.35) this.drawPill(tile, rect.x + rect.w - 7, origin || destination ? rect.y + 25 : rect.y + 7, `${gateCount}G`, color);
-
-      tile.on("pointerover", () => {
-        this.hovered = region.coord;
-      });
-      tile.on("pointerout", () => {
-        if (this.hovered === region.coord) this.hovered = null;
-      });
-      tile.on("pointertap", (event) => {
-        const original = event as unknown as { altKey?: boolean; shiftKey?: boolean; global?: { x: number; y: number } };
-        if (this.suppressNextTap) {
-          this.suppressNextTap = false;
-          return;
-        }
-        const point = original.global ? this.screenToWorld(original.global.x, original.global.y) : this.pointFor(region);
-        const mapX = clamp(((point.x - this.layout.originX) / this.layout.width) * GALAXY_SIZE, region.xMin, region.xMax - 1);
-        const mapZ = clamp(((point.y - this.layout.originY) / this.layout.height) * GALAXY_SIZE, region.zMin, region.zMax - 1);
-        const sector = sectorForPoint(region, mapX, mapZ);
-        const endpointId = `sector:${region.coord}:${sector}`;
-        if (original.shiftKey) this.onSetDestination(endpointId);
-        else if (original.altKey) this.onSetOrigin(endpointId);
-        else this.onSelect(region.coord);
-      });
-
-      this.sectors.addChild(tile);
-
+      if (!includeLabels) continue;
       const textOffset = origin || destination ? Math.max(5, this.layout.cell * 0.06) : 0;
-      if (state.layers.labels && lod.labelMode === "region") {
+      if (state.layers.labels) {
         const denseLabels = this.camera.scale > 0.86 && this.layout.cell > 58;
         const nameMax = Math.max(5, Math.floor(rect.w / 7));
         const slugMax = Math.max(6, Math.floor(rect.w / 6));
-        this.drawHudText(this.labels, region.coord, rect.x + 9, rect.y + 10 + textOffset, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
+        this.drawHudText(this.regionLabels, region.coord, rect.x + 9, rect.y + 10 + textOffset, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
         if (denseLabels) {
-          this.drawHudText(this.labels, fitText(region.name, nameMax), rect.x + 9, rect.y + rect.h * 0.43 + textOffset * 0.35, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
-          if (rect.w > 48) this.drawHudText(this.labels, fitText(region.slug, slugMax), rect.x + 9, rect.y + rect.h * 0.62 + textOffset * 0.25, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
+          this.drawHudText(this.regionLabels, fitText(region.name, nameMax), rect.x + 9, rect.y + rect.h * 0.43 + textOffset * 0.35, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
+          if (rect.w > 48) this.drawHudText(this.regionLabels, fitText(region.slug, slugMax), rect.x + 9, rect.y + rect.h * 0.62 + textOffset * 0.25, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
         }
-      } else if (state.layers.labels && lod.labelMode === "sector") {
-        this.drawHudText(this.labels, region.coord, rect.x + 8, rect.y + 8 + textOffset, color, Math.max(11, this.worldWidth(12)), "left", 900);
+        this.drawHudText(this.sectorRegionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2 - this.layout.cell * 0.1 + textOffset * 0.3, color, this.layout.cell * 0.2, "center", 900);
         for (const sector of region.sectors) {
           const start = this.pointForCoords(sector.xMin, sector.zMin);
           const end = this.pointForCoords(sector.xMax, sector.zMax);
-          this.drawHudText(this.labels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.worldWidth(7), 0xa9b8cf, this.worldWidth(12), "center", 800);
+          this.drawHudText(this.sectorLabels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.layout.cell * 0.08, 0xa9b8cf, this.layout.cell * 0.135, "center", 800);
         }
-      } else if (!state.layers.labels && lod.regionAlpha > 0.2) {
-        this.drawHudText(this.labels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
+      } else if (!state.layers.labels) {
+        this.drawHudText(this.regionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
       }
     }
 
@@ -641,29 +807,73 @@ export class GalaxyViewport {
       marker.alpha = visible ? 1 : 0.18;
       const markerColor = this.locationColor(location);
       const markerRadius = this.worldWidth(4.8);
+      const endpointId = `location:${location.id}`;
+      marker.circle(point.x, point.y, Math.max(this.worldWidth(14), markerRadius * 2.4)).fill({ color: 0x000000, alpha: 0.001 });
       if (location.kind === "gate") {
         const r = this.worldWidth(7);
         marker.poly([point.x, point.y - r, point.x + r, point.y, point.x, point.y + r, point.x - r, point.y])
           .fill({ color: 0x07101e, alpha: 0.94 })
           .stroke({ color: markerColor, alpha: 0.92, width: this.worldWidth(1.8) });
       } else if (location.kind === "belt") {
+        if (this.hitMode() !== "region" && location.radius) {
+          marker.circle(point.x, point.y, this.unitsToWorld(location.radius))
+            .fill({ color: markerColor, alpha: 0.045 })
+            .stroke({ color: markerColor, alpha: 0.28, width: this.worldWidth(1.2) });
+        }
         marker.circle(point.x, point.y, markerRadius).stroke({ color: markerColor, alpha: 0.92, width: this.worldWidth(2) });
       } else {
         marker.circle(point.x, point.y, this.worldWidth(4.6)).fill({ color: markerColor, alpha: 0.9 });
       }
+      marker.on("pointerover", () => {
+        this.hoveredEndpoint = endpointId;
+      });
+      marker.on("pointerout", () => {
+        if (this.hoveredEndpoint === endpointId) this.hoveredEndpoint = null;
+      });
       marker.on("pointertap", (event) => {
         const original = event as unknown as { altKey?: boolean; shiftKey?: boolean };
         if (this.suppressNextTap) {
           this.suppressNextTap = false;
           return;
         }
-        const endpointId = `location:${location.id}`;
         if (original.shiftKey) this.onSetDestination(endpointId);
         else if (original.altKey) this.onSetOrigin(endpointId);
-        else this.onSelect(location.region);
+        else this.onSelect(endpointId);
       });
-      this.sectors.addChild(marker);
+      this.contentLayer.addChild(marker);
     }
+  }
+
+  private createMapHitTarget(region: Region, x: number, y: number, w: number, h: number, fixedSector?: SectorName): Graphics {
+    const hitTile = new Graphics();
+    hitTile.eventMode = "static";
+    hitTile.cursor = "pointer";
+    hitTile.rect(x, y, w, h).fill({ color: 0x000000, alpha: 0.001 });
+    const hoverId = fixedSector ? `sector:${region.coord}:${fixedSector}` : null;
+    hitTile.on("pointerover", () => {
+      if (hoverId) this.hoveredEndpoint = hoverId;
+      else this.hovered = region.coord;
+    });
+    hitTile.on("pointerout", () => {
+      if (hoverId && this.hoveredEndpoint === hoverId) this.hoveredEndpoint = null;
+      if (!hoverId && this.hovered === region.coord) this.hovered = null;
+    });
+    hitTile.on("pointertap", (event) => {
+      const original = event as unknown as { altKey?: boolean; shiftKey?: boolean; global?: { x: number; y: number } };
+      if (this.suppressNextTap) {
+        this.suppressNextTap = false;
+        return;
+      }
+      const point = original.global ? this.screenToWorld(original.global.x, original.global.y) : this.pointFor(region);
+      const mapX = clamp(((point.x - this.layout.originX) / this.layout.width) * GALAXY_SIZE, region.xMin, region.xMax - 1);
+      const mapZ = clamp(((point.y - this.layout.originY) / this.layout.height) * GALAXY_SIZE, region.zMin, region.zMax - 1);
+      const sector = fixedSector ?? sectorForPoint(region, mapX, mapZ);
+      const endpointId = `sector:${region.coord}:${sector}`;
+      if (original.shiftKey) this.onSetDestination(endpointId);
+      else if (original.altKey) this.onSetOrigin(endpointId);
+      else this.onSelect(fixedSector ? endpointId : region.coord);
+    });
+    return hitTile;
   }
 
   private locationColor(location: MapLocation): number {
@@ -684,19 +894,18 @@ export class GalaxyViewport {
       .stroke({ color: 0x71d5ff, alpha, width: this.worldWidth(2) });
   }
 
-  private drawPill(target: Graphics, x: number, y: number, text: string, color: number): void {
-    target.poly(chamferPoints(x - 32, y, 32, 16, 5)).fill({ color: 0x07101e, alpha: 0.92 });
-    this.drawHudText(this.labels, text, x - 16, y + 2, color, this.worldWidth(10), "center", 900);
+  private unitsToWorld(units: number): number {
+    return (units / GALAXY_SIZE) * this.layout.width;
   }
 
-  private drawSectorMark(target: Graphics, rect: { x: number; y: number; w: number; h: number }, text: string, color: number): void {
+  private drawSectorMark(target: Graphics, rect: { x: number; y: number; w: number; h: number }, text: string, color: number, includeLabel = true): void {
     target.poly(chamferPoints(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2, 8)).fill({ color, alpha: 0.1 });
     const tabW = Math.max(46, Math.min(64, rect.w * 0.62));
     const tabX = rect.x + (rect.w - tabW) / 2;
     const tabY = rect.y - Math.max(15, Math.min(18, rect.h * 0.21)) * 0.68;
     target.poly([tabX + 6, tabY, tabX + tabW, tabY, tabX + tabW, rect.y + 1, tabX, rect.y + 1, tabX, tabY + 6])
       .fill({ color, alpha: 1 });
-    this.drawHudText(this.labels, text, tabX + tabW / 2, tabY + 3, 0x04111d, this.worldWidth(8), "center", 900);
+    if (includeLabel) this.drawHudText(this.regionLabels, text, tabX + tabW / 2, tabY + 3, 0x04111d, this.worldWidth(8), "center", 900);
   }
 
   private drawHudText(target: Container, value: string, x: number, y: number, color: number, size: number, align: "left" | "center", weight = 700): void {
@@ -713,7 +922,7 @@ export class GalaxyViewport {
     });
     text.x = x;
     text.y = y;
-    text.resolution = 4;
+    text.resolution = 8;
     if (align === "center") text.anchor.set(0.5, 0);
     target.addChild(text);
   }

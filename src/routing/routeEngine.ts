@@ -27,6 +27,7 @@ interface Edge {
   stepCount: number;
   label: string;
   impulseDistance: number;
+  gateNetwork: boolean;
   landing?: RouteNode;
 }
 
@@ -39,6 +40,7 @@ interface QueueNode {
 }
 
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z);
+const isGateNode = (node: RouteNode): boolean => node.locationId?.startsWith("gate-") ?? false;
 
 const nodeFromEndpoint = (endpoint: Endpoint): RouteNode => ({
   id: endpoint.id,
@@ -82,9 +84,9 @@ const stepScore = (state: AppState, next: Edge): number => {
   const weights = profiles[state.profile].weights;
   const target = byCoord.get(next.to.coord);
   if (!target) return Infinity;
-  const impulsePenalty = next.impulseDistance * 0.008;
-  const gateFactor = next.mode === "gate" ? 0.35 : 1;
-  return next.fuel * weights.fuel + next.stepCount * weights.steps * gateFactor + riskFor(target) * weights.risk * gateFactor + impulsePenalty;
+  const networkFactor = next.gateNetwork ? (state.profile === "cheap" ? 0.08 : 0.35) : 1;
+  const impulsePenalty = next.impulseDistance * (next.gateNetwork ? 0.0015 : 0.008);
+  return next.fuel * weights.fuel + next.stepCount * weights.steps * networkFactor + riskFor(target) * weights.risk * networkFactor + impulsePenalty;
 };
 
 const warpEdge = (state: AppState, from: RouteNode, target: RouteNode): Edge | null => {
@@ -106,6 +108,7 @@ const warpEdge = (state: AppState, from: RouteNode, target: RouteNode): Edge | n
     stepCount: impulseDistance > 1 ? 2 : 1,
     label: `Warp ${hop} region hop${hop === 1 ? "" : "s"} to ${target.coord}.${target.sector}`,
     impulseDistance,
+    gateNetwork: false,
     landing
   };
 };
@@ -130,7 +133,8 @@ const gateEdge = (state: AppState, from: RouteNode): Edge | null => {
     fuel: 0,
     stepCount: 1,
     label: `Gate to ${pair.name} (${pair.region}.${pair.sector})`,
-    impulseDistance: 0
+    impulseDistance: 0,
+    gateNetwork: true
   };
 };
 
@@ -148,7 +152,8 @@ const impulseEdge = (state: AppState, from: RouteNode, target: RouteNode): Edge 
     fuel: 0,
     stepCount: 1,
     label: `Impulse ${Math.round(impulseDistance).toLocaleString()}u`,
-    impulseDistance
+    impulseDistance,
+    gateNetwork: isGateNode(from) || isGateNode(target)
   };
 };
 

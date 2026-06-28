@@ -118,8 +118,13 @@ export const renderRoutePanel = (state: AppState): void => {
       if (!region) return "";
       const location = step.locationId ? locations.find((item) => item.id === step.locationId) : undefined;
       const title = location ? `${location.name} (${region.coord}.${step.sector})` : `${region.coord}.${step.sector ?? "--"} - ${region.name}`;
+      const endpointId = location && endpointById.has(`location:${location.id}`)
+        ? `location:${location.id}`
+        : step.sector && endpointById.has(`sector:${region.coord}:${step.sector}`)
+          ? `sector:${region.coord}:${step.sector}`
+          : "";
       return `
-        <div class="route-step" data-coord="${region.coord}">
+        <div class="route-step" data-coord="${region.coord}" ${endpointId ? `data-endpoint="${endpointId}"` : ""}>
           <div class="stepnum">${index + 1}</div>
           <div>
             <b>${escapeHtml(title)}</b>
@@ -131,32 +136,35 @@ export const renderRoutePanel = (state: AppState): void => {
 };
 
 export const renderDetails = (state: AppState): void => {
-  const selected = byCoord.get(state.selected);
+  const selectedEndpoint = endpointById.get(state.selected);
+  const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
   if (!selected) return;
+  const selectedLocation = selectedEndpoint?.locationId ? locations.find((location) => location.id === selectedEndpoint.locationId) : undefined;
+  const selectedSector = selectedEndpoint ? selected.sectors.find((sector) => sector.id === selectedEndpoint.sector) : undefined;
   const gateCount = gatesByCoord.get(selected.coord)?.length ?? 0;
   const regionLocations = locationsByCoord.get(selected.coord) ?? [];
   const published = regionLocations.filter((location) => !location.hidden).length;
   const hidden = regionLocations.length - published;
+  const detailTitle = selectedLocation
+    ? selectedLocation.name
+    : selectedSector
+      ? `${selected.coord}.${selectedSector.id} - ${selected.name}`
+      : `${selected.coord} - ${selected.name}`;
+  const detailSub = selectedLocation
+    ? `${locationKindLabel[selectedLocation.kind]} / ${selected.coord}.${selectedLocation.sector ?? selectedEndpoint?.sector ?? "--"} / ${selected.zone}`
+    : selectedSector
+      ? `Sector / ${selected.zone} / ${selected.slug}`
+      : `${selected.zone} / ${selected.slug}`;
 
-  qs("#detailTitle").textContent = `${selected.coord} - ${selected.name}`;
-  qs("#detailSub").textContent = `${selected.zone} / ${selected.slug}`;
+  qs("#detailTitle").textContent = detailTitle;
+  qs("#detailSub").textContent = detailSub;
   const badge = qs<HTMLElement>("#detailBadge");
   badge.className = `readout ${zoneClass[selected.zone]}`;
-  badge.innerHTML = `
-    <strong style="color:var(--zone)">${selected.security}</strong>
-    <div class="muted">${zoneMeaning(selected.zone)}</div>
-    <div class="data-grid">
-      <div>Region</div><div>${selected.coord}</div>
-      <div>Range</div><div>x ${selected.xMin.toLocaleString()}-${selected.xMax.toLocaleString()}, z ${selected.zMin.toLocaleString()}-${selected.zMax.toLocaleString()}</div>
-      <div>Sectors</div><div>${selected.sectors.map((sector) => `${sector.id}: ${sector.centerX.toLocaleString()}, ${sector.centerZ.toLocaleString()}`).join("<br>")}</div>
-      <div>Gates</div><div>${gateCount}</div>
-      <div>Locations</div><div>${published}${hidden ? ` published / ${hidden} hidden` : ""}</div>
-    </div>
-    <div class="action-row">
-      <button id="setOrigin" type="button">Set Origin</button>
-      <button id="setDestination" type="button">Set Dest</button>
-    </div>
-  `;
+  badge.innerHTML = selectedLocation
+    ? locationDetailHtml(selectedLocation, selected, selectedEndpoint)
+    : selectedSector
+      ? sectorDetailHtml(selected, selectedSector, gateCount, published, hidden)
+      : regionDetailHtml(selected, gateCount, published, hidden);
 
   renderStats();
   renderGates(selected);
@@ -186,6 +194,8 @@ export const itemHtml = (region: Region, detail: string): string => `
 
 const locationHtml = (location: MapLocation): string => {
   const region = byCoord.get(location.region);
+  const endpointId = `location:${location.id}`;
+  const endpointAttr = endpointById.has(endpointId) ? `data-endpoint="${endpointId}"` : `data-coord="${location.region}"`;
   const details = [
     locationKindLabel[location.kind],
     location.sector ? `${location.region}.${location.sector}` : location.region,
@@ -193,10 +203,71 @@ const locationHtml = (location: MapLocation): string => {
     location.resources?.slice(0, 3).join(", ")
   ].filter(Boolean).join(" / ");
   return `
-    <div class="item" data-coord="${location.region}">
+    <div class="item" ${endpointAttr}>
       <b>${escapeHtml(location.name)}</b>
       <div class="muted"><span style="color:${zoneCss[location.zone]}">${region?.zone ?? location.zone}</span> / ${escapeHtml(details)}</div>
     </div>
+  `;
+};
+
+const actionButtons = (): string => `
+  <div class="action-row">
+    <button id="setOrigin" type="button">Set Origin</button>
+    <button id="setDestination" type="button">Set Dest</button>
+  </div>
+`;
+
+const regionDetailHtml = (selected: Region, gateCount: number, published: number, hidden: number): string => `
+  <strong style="color:var(--zone)">${selected.security}</strong>
+  <div class="muted">${zoneMeaning(selected.zone)}</div>
+  <div class="data-grid">
+    <div>Region</div><div>${selected.coord}</div>
+    <div>Range</div><div>x ${selected.xMin.toLocaleString()}-${selected.xMax.toLocaleString()}, z ${selected.zMin.toLocaleString()}-${selected.zMax.toLocaleString()}</div>
+    <div>Sectors</div><div>${selected.sectors.map((sector) => `${sector.id}: ${sector.centerX.toLocaleString()}, ${sector.centerZ.toLocaleString()}`).join("<br>")}</div>
+    <div>Gates</div><div>${gateCount}</div>
+    <div>Locations</div><div>${published}${hidden ? ` published / ${hidden} hidden` : ""}</div>
+  </div>
+  ${actionButtons()}
+`;
+
+const sectorDetailHtml = (selected: Region, sector: Region["sectors"][number], gateCount: number, published: number, hidden: number): string => `
+  <strong style="color:var(--zone)">${selected.security}</strong>
+  <div class="muted">${zoneMeaning(selected.zone)}</div>
+  <div class="data-grid">
+    <div>Sector</div><div>${selected.coord}.${sector.id}</div>
+    <div>Center</div><div>x ${sector.centerX.toLocaleString()}, z ${sector.centerZ.toLocaleString()}</div>
+    <div>Range</div><div>x ${sector.xMin.toLocaleString()}-${sector.xMax.toLocaleString()}, z ${sector.zMin.toLocaleString()}-${sector.zMax.toLocaleString()}</div>
+    <div>Region</div><div>${selected.coord} - ${escapeHtml(selected.name)}</div>
+    <div>Gates</div><div>${gateCount}</div>
+    <div>Locations</div><div>${published}${hidden ? ` published / ${hidden} hidden` : ""}</div>
+  </div>
+  ${actionButtons()}
+`;
+
+const locationDetailHtml = (location: MapLocation, selected: Region, endpoint: Endpoint | undefined): string => {
+  const rows: Array<[string, string | undefined]> = [
+    ["Kind", locationKindLabel[location.kind]],
+    ["Region", `${selected.coord} - ${selected.name}`],
+    ["Sector", `${selected.coord}.${location.sector ?? endpoint?.sector ?? "--"}`],
+    ["Coordinates", location.x !== null && location.z !== null ? `x ${location.x.toLocaleString()}, z ${location.z.toLocaleString()}` : location.details.coordinates],
+    ["Radius", location.radius?.toLocaleString()],
+    ["Density", location.density?.toLocaleString()],
+    ["Resources", location.resources?.join(", ")],
+    ["Links", location.linksTo]
+  ];
+  const extraRows = Object.entries(location.details)
+    .filter(([key]) => key !== "coordinates")
+    .map(([key, value]) => [key.replace(/_/g, " "), value] as [string, string]);
+  const htmlRows = [...rows, ...extraRows]
+    .filter((row): row is [string, string] => Boolean(row[1]))
+    .map(([label, value]) => `<div>${escapeHtml(label)}</div><div>${escapeHtml(value)}</div>`)
+    .join("");
+
+  return `
+    <strong style="color:var(--zone)">${locationKindLabel[location.kind]}</strong>
+    <div class="muted">${zoneMeaning(selected.zone)}</div>
+    <div class="data-grid">${htmlRows}</div>
+    ${actionButtons()}
   `;
 };
 

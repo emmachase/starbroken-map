@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">
+  <defs></defs>
+  <rect width="8" height="8" fill="transparent"/>
+  <rect y="0" width="8" height="1" fill="#eef7ff" opacity=".24"/>
+  <rect y="2" width="8" height="1" fill="#71d5ff" opacity=".12"/>
+  <rect y="5" width="8" height="1" fill="#000000" opacity=".30"/>
+</svg>

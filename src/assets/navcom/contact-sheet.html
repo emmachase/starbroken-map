@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NAVCOM Asset Contact Sheet</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #02040a;
+      --ink: #eef7ff;
+      --muted: #8da4b8;
+      --line: rgba(113, 213, 255, .24);
+      --cyan: #71d5ff;
+      --hot: #ff5571;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 13px/1.4 Inter, Segoe UI, system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% 20%, rgba(27, 68, 104, .34), transparent 34%),
+        linear-gradient(180deg, #040814, var(--bg));
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 6px; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
+    p { margin: 0 0 20px; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: rgba(4, 8, 17, .76);
+      clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+      padding: 12px;
+    }
+    .preview {
+      display: grid;
+      place-items: center;
+      height: 164px;
+      overflow: hidden;
+      border: 1px solid rgba(113, 213, 255, .12);
+      background:
+        linear-gradient(90deg, rgba(113, 213, 255, .06) 1px, transparent 1px),
+        linear-gradient(rgba(113, 213, 255, .06) 1px, transparent 1px),
+        #030612;
+      background-size: 18px 18px;
+    }
+    .preview img {
+      max-width: 92%;
+      max-height: 92%;
+      object-fit: contain;
+      image-rendering: auto;
+    }
+    .tile img {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: cover;
+    }
+    .label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .sample {
+      margin-top: 22px;
+      border: 1px solid rgba(113, 213, 255, .26);
+      min-height: 260px;
+      position: relative;
+      overflow: hidden;
+      background:
+        url("holo-grid.svg"),
+        url("noise-blue.svg"),
+        #030612;
+      background-size: 128px 128px, cover, auto;
+    }
+    .sample::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: url("scanline-mask.svg"), url("glass-smudge.svg");
+      background-size: 8px 8px, cover;
+      opacity: .42;
+      pointer-events: none;
+    }
+    .sample::after {
+      content: "";
+      position: absolute;
+      inset: 24px 48px;
+      border: 1px solid rgba(113, 213, 255, .38);
+      box-shadow: 0 0 28px rgba(113, 213, 255, .14), inset 0 0 36px rgba(113, 213, 255, .06);
+      clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+    }
+    .edge {
+      position: absolute;
+      left: 80px;
+      right: 80px;
+      top: 72px;
+      height: 32px;
+      background: url("panel-edge-gradient.svg") center / 100% 100% no-repeat;
+    }
+    .ring {
+      position: absolute;
+      width: 170px;
+      height: 170px;
+      left: calc(50% - 85px);
+      top: 72px;
+      background: url("ring-soft.svg") center / contain no-repeat;
+      mix-blend-mode: screen;
+    }
+    .warn {
+      position: absolute;
+      right: 70px;
+      bottom: 58px;
+      width: 190px;
+      height: 20px;
+      background: url("critical-stripe.svg") center / 48px 48px repeat;
+      mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.2) 8%, black 18%, black 82%, rgba(0,0,0,.2) 92%, transparent 100%);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.2) 8%, black 18%, black 82%, rgba(0,0,0,.2) 92%, transparent 100%);
+      opacity: .72;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NAVCOM Asset Contact Sheet</h1>
+    <p>Generated material textures for the HTML-in-canvas/Pixi diegetic UI pass.</p>
+    <section class="grid">
+      <article class="card">
+        <div class="preview tile">
+          <img src="noise-blue.svg" alt="noise-blue.svg">
+        </div>
+        <div class="label"><span>noise-blue.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="noise-red.svg" alt="noise-red.svg">
+        </div>
+        <div class="label"><span>noise-red.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="scanline-mask.svg" alt="scanline-mask.svg">
+        </div>
+        <div class="label"><span>scanline-mask.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview ">
+          <img src="panel-edge-gradient.svg" alt="panel-edge-gradient.svg">
+        </div>
+        <div class="label"><span>panel-edge-gradient.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="warning-stripe.svg" alt="warning-stripe.svg">
+        </div>
+        <div class="label"><span>warning-stripe.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="critical-stripe.svg" alt="critical-stripe.svg">
+        </div>
+        <div class="label"><span>critical-stripe.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="caution-stripe.svg" alt="caution-stripe.svg">
+        </div>
+        <div class="label"><span>caution-stripe.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="stripe-falloff-horizontal.svg" alt="stripe-falloff-horizontal.svg">
+        </div>
+        <div class="label"><span>stripe-falloff-horizontal.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="stripe-falloff-vertical.svg" alt="stripe-falloff-vertical.svg">
+        </div>
+        <div class="label"><span>stripe-falloff-vertical.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview ">
+          <img src="spark-dot.svg" alt="spark-dot.svg">
+        </div>
+        <div class="label"><span>spark-dot.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview ">
+          <img src="ring-soft.svg" alt="ring-soft.svg">
+        </div>
+        <div class="label"><span>ring-soft.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="glass-smudge.svg" alt="glass-smudge.svg">
+        </div>
+        <div class="label"><span>glass-smudge.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview ">
+          <img src="bracket-corner.svg" alt="bracket-corner.svg">
+        </div>
+        <div class="label"><span>bracket-corner.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview ">
+          <img src="reticle-ping.svg" alt="reticle-ping.svg">
+        </div>
+        <div class="label"><span>reticle-ping.svg</span><span>svg</span></div>
+      </article>
+<article class="card">
+        <div class="preview tile">
+          <img src="holo-grid.svg" alt="holo-grid.svg">
+        </div>
+        <div class="label"><span>holo-grid.svg</span><span>svg</span></div>
+      </article>
+    </section>
+    <section class="sample" aria-label="Composite sample">
+      <div class="edge"></div>
+      <div class="ring"></div>
+      <div class="warn"></div>
+    </section>
+  </main>
+</body>
+</html>

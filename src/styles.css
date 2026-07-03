@@ -54,6 +54,7 @@ body {
 }
 
 .topbar {
+  z-index: 30;
   display: grid;
   grid-template-columns: 310px minmax(300px, 1fr) 340px;
   gap: 14px;
@@ -117,9 +118,66 @@ h2 {
 }
 
 .searchbox {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 80px;
   gap: 7px;
+}
+
+.nav-command {
+  position: relative;
+  min-width: 0;
+}
+
+.nav-command-list {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: min(460px, calc(100vh - 96px));
+  overflow: auto;
+  border: 1px solid rgba(113, 213, 255, .36);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background:
+    linear-gradient(135deg, rgba(113, 213, 255, .12), transparent 36%),
+    rgba(3, 7, 15, .98);
+  box-shadow: 0 20px 44px var(--shadow);
+  scrollbar-color: rgba(113, 213, 255, .46) rgba(3, 7, 15, .72);
+  scrollbar-width: thin;
+}
+
+.nav-command-list [cmdk-group-heading] {
+  padding: 9px 10px 5px;
+  color: var(--soft);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.nav-command-item,
+.nav-command-empty {
+  padding: 9px 10px;
+}
+
+.nav-command-item {
+  display: grid;
+  gap: 2px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.nav-command-item span,
+.nav-command-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nav-command-item[aria-selected="true"],
+.nav-command-item[data-selected="true"] {
+  background:
+    linear-gradient(90deg, rgba(113, 213, 255, .24), transparent 70%),
+    rgba(113, 213, 255, .08);
 }
 
 button,

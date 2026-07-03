@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <defs><linearGradient id="shadow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".36"/>
+    </linearGradient></defs>
+  <rect width="96" height="96" fill="#100408"/>
+  <g opacity=".94">
+    <polygon points="-192,0 -174,0 -78,96 -96,96" fill="#ff6b3d" opacity=".78"/>
+    <polygon points="-154,0 -134,0 -38,96 -58,96" fill="#ff3f5f" opacity=".88"/>
+    <polygon points="-114,0 -102,0 -6,96 -18,96" fill="#7d1829" opacity=".72"/>
+    <polygon points="-96,0 -78,0 18,96 0,96" fill="#ff6b3d" opacity=".78"/>
+    <polygon points="-58,0 -38,0 58,96 38,96" fill="#ff3f5f" opacity=".88"/>
+    <polygon points="-18,0 -6,0 90,96 78,96" fill="#7d1829" opacity=".72"/>
+    <polygon points="0,0 18,0 114,96 96,96" fill="#ff6b3d" opacity=".78"/>
+    <polygon points="38,0 58,0 154,96 134,96" fill="#ff3f5f" opacity=".88"/>
+    <polygon points="78,0 90,0 186,96 174,96" fill="#7d1829" opacity=".72"/>
+    <polygon points="96,0 114,0 210,96 192,96" fill="#ff6b3d" opacity=".78"/>
+    <polygon points="134,0 154,0 250,96 230,96" fill="#ff3f5f" opacity=".88"/>
+    <polygon points="174,0 186,0 282,96 270,96" fill="#7d1829" opacity=".72"/>
+    <polygon points="192,0 210,0 306,96 288,96" fill="#ff6b3d" opacity=".78"/>
+    <polygon points="230,0 250,0 346,96 326,96" fill="#ff3f5f" opacity=".88"/>
+    <polygon points="270,0 282,0 378,96 366,96" fill="#7d1829" opacity=".72"/>
+  </g>
+  <rect width="96" height="96" fill="url(#shadow)"/>
+</svg>

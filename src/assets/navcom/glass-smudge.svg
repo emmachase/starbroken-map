@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs><filter id="smudge" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".026 .038" numOctaves="5" seed="73"/>
+      <feColorMatrix type="matrix" values="0 0 0 .8 0  0 0 0 .9 0  0 0 0 1 0  0 0 0 .18 0"/>
+      <feGaussianBlur stdDeviation="1.6"/>
+    </filter>
+    <radialGradient id="softReflection" cx="52%" cy="18%" r="82%">
+      <stop offset="0" stop-color="#eef7ff" stop-opacity=".22"/>
+      <stop offset=".32" stop-color="#71d5ff" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#eef7ff" stop-opacity="0"/>
+    </radialGradient></defs>
+  <rect width="1024" height="1024" fill="transparent"/>
+  <rect width="1024" height="1024" filter="url(#smudge)" opacity=".34"/>
+  <rect width="1024" height="1024" fill="url(#softReflection)" opacity=".18"/>
+</svg>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { Command } from "cmdk";
 import {
   byCoord,
   defaultDestination,
@@ -67,10 +68,47 @@ const zoneMeaning = (zone: Zone): string => ({
 
 const endpointText = (id: string): string => endpointById.get(id)?.label ?? id;
 
+type SearchOption =
+  | { commandValue: string; id: string; type: "region"; label: string; detail: string; keywords: string[]; zone: Zone }
+  | { commandValue: string; id: string; type: "location"; label: string; detail: string; keywords: string[]; zone: Zone };
+
 const endpointGroups = {
   sectors: endpoints.filter((endpoint) => endpoint.kind === "sector"),
   locations: endpoints.filter((endpoint) => endpoint.kind === "location")
 };
+
+const searchOptions: SearchOption[] = [
+  ...regions.map((region) => ({
+    commandValue: `region:${region.coord}`,
+    id: region.coord,
+    type: "region" as const,
+    label: `${region.coord} - ${region.name}`,
+    detail: `${region.zone} / ${region.slug}`,
+    keywords: [region.coord, region.name, region.slug, region.zone, `r${region.slug.split("-r")[1]}`],
+    zone: region.zone
+  })),
+  ...locations.map((location) => ({
+    commandValue: `location-option:${location.id}`,
+    id: endpointById.has(`location:${location.id}`) ? `location:${location.id}` : location.region,
+    type: "location" as const,
+    label: location.name,
+    detail: [
+      locationKindLabel[location.kind],
+      location.sector ? `${location.region}.${location.sector}` : location.region,
+      location.hidden ? "coordinates hidden" : location.details.coordinates,
+      location.resources?.slice(0, 3).join(", ")
+    ].filter(Boolean).join(" / "),
+    keywords: [
+      location.name,
+      location.kind,
+      location.region,
+      location.zone,
+      location.sector ?? "",
+      location.resources?.join(" ") ?? ""
+    ],
+    zone: location.zone
+  }))
+];
 
 const calculateRouteState = (state: AppState): AppState => {
   const route = findPath(state);
@@ -132,6 +170,12 @@ function App() {
     showToast(`${profiles[profile].label} armed`);
   };
 
+  const selectSearchOption = (id: string): void => {
+    const option = searchOptions.find((item) => item.id === id);
+    patchState({ selected: id, search: option?.label ?? state.search });
+    if (option) showToast(`${option.type === "region" ? "Region" : "Signal"} selected: ${option.label}`);
+  };
+
   return (
     <>
       <header className="topbar">
@@ -152,13 +196,11 @@ function App() {
         </nav>
 
         <div className="searchbox">
-          <input
-            id="search"
-            type="search"
-            placeholder="Find A1, Halcyon, NULL, r63..."
-            autoComplete="off"
+          <NavSearch
             value={state.search}
-            onChange={(event) => patchState({ search: event.target.value })}
+            onValueChange={(search) => patchState({ search })}
+            onActiveChange={(selected) => patchState({ selected })}
+            onSelect={selectSearchOption}
           />
           <button
             id="reset"
@@ -184,6 +226,119 @@ function App() {
         <DetailsPanel state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
       </main>
     </>
+  );
+}
+
+function NavSearch({
+  value,
+  onValueChange,
+  onActiveChange,
+  onSelect
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  onActiveChange: (id: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [activeValue, setActiveValue] = useState(searchOptions[0]?.commandValue ?? "");
+  const optionByCommandValue = useMemo(() => new Map(searchOptions.map((option) => [option.commandValue, option])), []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  const choose = (id: string): void => {
+    onSelect(id);
+    setOpen(false);
+  };
+
+  const setActiveCommand = (commandValue: string): void => {
+    setActiveValue(commandValue);
+    const option = optionByCommandValue.get(commandValue);
+    if (option) onActiveChange(option.id);
+  };
+
+  return (
+    <Command
+      ref={rootRef}
+      className="nav-command"
+      label="Galaxy search"
+      loop
+      shouldFilter
+      value={activeValue}
+      onValueChange={setActiveCommand}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+    >
+      <Command.Input
+        value={value}
+        onValueChange={(search) => {
+          onValueChange(search);
+          setOpen(true);
+        }}
+        placeholder="Find A1, Halcyon, NULL, r63..."
+        autoComplete="off"
+        onFocus={() => setOpen(true)}
+      />
+      {open ? (
+        <Command.List className="nav-command-list">
+          <Command.Empty className="nav-command-empty">No matches.</Command.Empty>
+          <Command.Group heading="Regions">
+            {searchOptions.filter((option) => option.type === "region").map((option) => (
+              <Command.Item
+                key={option.commandValue}
+                value={option.commandValue}
+                keywords={option.keywords}
+                onClick={() => choose(option.id)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(option.id);
+                }}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  choose(option.id);
+                }}
+                onSelect={() => choose(option.id)}
+                className="nav-command-item"
+              >
+                <b>{option.label}</b>
+                <span><span style={{ color: zoneCss[option.zone] }}>{option.zone}</span> / {option.detail}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+          <Command.Group heading="Signals">
+            {searchOptions.filter((option) => option.type === "location").map((option) => (
+              <Command.Item
+                key={option.commandValue}
+                value={option.commandValue}
+                keywords={option.keywords}
+                onClick={() => choose(option.id)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(option.id);
+                }}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  choose(option.id);
+                }}
+                onSelect={() => choose(option.id)}
+                className="nav-command-item"
+              >
+                <b>{option.label}</b>
+                <span><span style={{ color: zoneCss[option.zone] }}>{option.zone}</span> / {option.detail}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+        </Command.List>
+      ) : null}
+    </Command>
   );
 }
 

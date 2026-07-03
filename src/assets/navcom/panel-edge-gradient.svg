@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="32" viewBox="0 0 512 32">
+  <defs><linearGradient id="edge" x1="0" x2="1">
+      <stop offset="0" stop-color="#71d5ff" stop-opacity="0"/>
+      <stop offset=".18" stop-color="#71d5ff" stop-opacity=".72"/>
+      <stop offset=".5" stop-color="#eef7ff" stop-opacity=".95"/>
+      <stop offset=".82" stop-color="#71d5ff" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#71d5ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#71d5ff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#71d5ff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#71d5ff" stop-opacity="0"/>
+    </linearGradient></defs>
+  <rect width="512" height="32" fill="transparent"/>
+  <rect y="14" width="512" height="2" fill="#eef7ff" opacity=".52"/>
+  <rect y="10" width="512" height="10" fill="url(#edge)" opacity=".9"/>
+  <rect y="4" width="512" height="24" fill="url(#fade)" opacity=".72"/>
+</svg>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="96" viewBox="0 0 512 96">
+  <defs><linearGradient id="falloff" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset=".08" stop-color="#ffffff" stop-opacity=".2"/>
+      <stop offset=".18" stop-color="#ffffff" stop-opacity=".82"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset=".82" stop-color="#ffffff" stop-opacity=".82"/>
+      <stop offset=".92" stop-color="#ffffff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient></defs>
+  <rect width="512" height="96" fill="url(#falloff)"/>
+</svg>

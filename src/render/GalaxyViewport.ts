@@ -53,6 +53,8 @@ const MAX_ZOOM = 100;
 const SECTOR_LOD_THRESHOLD = 1.4;
 const COMPONENT_LOD_THRESHOLD = 3.8;
 const LOD12_TRANSITION_SPEED = 0.1;
+const REGION_FRAME_SCALE = 1.18;
+const SECTOR_FRAME_SCALE = 2.2;
 
 const stars = Array.from({ length: 160 }, (_, index) => ({
   x: ((index * 97) % 997) / 997,
@@ -95,7 +97,6 @@ export class GalaxyViewport {
   private dragStart = { x: 0, y: 0 };
   private cameraStart = { x: 0, y: 0 };
   private routePhase = 0;
-  private lastFocus = "";
   private lastGeometryBucket = "";
   private lastHitMode: HitMode | null = null;
   private lastGridSignature = "";
@@ -105,7 +106,6 @@ export class GalaxyViewport {
   private lastLabelsSignature = "";
   private lastEndpointLabelsSignature = "";
   private renderedSelected = "";
-  private renderedSearch = "";
   private lod12Blend = 0;
 
   constructor(options: GalaxyViewportOptions) {
@@ -151,14 +151,11 @@ export class GalaxyViewport {
 
   setState(state: AppState): void {
     const previousSelected = this.renderedSelected;
-    const previousSearch = this.renderedSearch;
     this.state = state;
     this.renderStatic();
     this.drawAnimatedEffects();
     if (previousSelected && state.selected !== previousSelected) this.focusSelected();
-    if (previousSearch !== undefined && state.search !== previousSearch) this.ensureFocusForSearch();
     this.renderedSelected = state.selected;
-    this.renderedSearch = state.search;
   }
 
   focusSelected(immediate = false): void {
@@ -166,19 +163,24 @@ export class GalaxyViewport {
     const endpoint = endpointById.get(this.state.selected);
     const region = endpoint ? byCoord.get(endpoint.region) : byCoord.get(this.state.selected);
     if (!region) return;
-    const point = endpoint ? this.pointForCoords(endpoint.x, endpoint.z) : this.pointFor(region);
-    const focusScale = endpoint?.kind === "location" ? 5.2 : endpoint?.kind === "sector" ? 2.2 : this.root.clientWidth < 720 ? 1.18 : 1;
-    const nextScale = Math.max(this.camera.targetScale, focusScale);
-    this.camera.targetScale = clamp(nextScale, 0.7, MAX_ZOOM);
-    this.camera.targetX = this.root.clientWidth / 2 - point.x * this.camera.targetScale;
-    this.camera.targetY = this.root.clientHeight / 2 - point.y * this.camera.targetScale;
-    this.clampCameraTarget();
-    if (immediate) {
-      this.camera.x = this.camera.targetX;
-      this.camera.y = this.camera.targetY;
-      this.camera.scale = this.camera.targetScale;
-      this.applyCamera();
+
+    if (endpoint?.kind === "sector") {
+      const sector = region.sectors.find((item) => item.id === endpoint.sector);
+      if (sector) {
+        const start = this.pointForCoords(sector.xMin, sector.zMin);
+        const end = this.pointForCoords(sector.xMax, sector.zMax);
+        this.frameRect({ x: start.x, y: start.y, w: end.x - start.x, h: end.y - start.y }, immediate, this.root.clientWidth < 720 ? 34 : 72, SECTOR_FRAME_SCALE);
+        return;
+      }
     }
+
+    if (!endpoint) {
+      this.frameRect(this.rectFor(region), immediate, this.root.clientWidth < 720 ? 30 : 68, REGION_FRAME_SCALE);
+      return;
+    }
+
+    const point = this.pointForCoords(endpoint.x, endpoint.z);
+    this.setCameraTarget(point.x, point.y, 5.2, immediate);
   }
 
   destroy(): void {
@@ -498,26 +500,24 @@ export class GalaxyViewport {
     return screenPixels / Math.max(0.75, this.camera.scale || this.camera.targetScale || 1);
   }
 
-  private ensureFocusForSearch(): void {
-    const state = this.state;
-    if (!state) return;
-    const query = state.search.trim().toLowerCase();
-    if (!query || query === this.lastFocus) return;
-    const match = regions.find((region) => region.coord.toLowerCase() === query || region.name.toLowerCase().includes(query) || region.slug.toLowerCase().includes(query));
-    if (!match) return;
-    this.lastFocus = query;
-    this.focusRegion(match.coord);
+  private frameRect(rect: { x: number; y: number; w: number; h: number }, immediate: boolean, padding: number, maxScale: number): void {
+    const availableW = Math.max(80, this.root.clientWidth - padding * 2);
+    const availableH = Math.max(80, this.root.clientHeight - padding * 2);
+    const scale = clamp(Math.min(availableW / Math.max(1, rect.w), availableH / Math.max(1, rect.h)), 0.62, maxScale);
+    this.setCameraTarget(rect.x + rect.w / 2, rect.y + rect.h / 2, scale, immediate);
   }
 
-  private focusRegion(coord: string): void {
-    const region = byCoord.get(coord);
-    if (!region) return;
-    const point = this.pointFor(region);
-    const nextScale = clamp(Math.max(this.camera.targetScale, 1.2), 0.7, MAX_ZOOM);
-    this.camera.targetScale = nextScale;
-    this.camera.targetX = this.root.clientWidth / 2 - point.x * nextScale;
-    this.camera.targetY = this.root.clientHeight / 2 - point.y * nextScale;
+  private setCameraTarget(x: number, y: number, scale: number, immediate: boolean): void {
+    this.camera.targetScale = clamp(scale, 0.62, MAX_ZOOM);
+    this.camera.targetX = this.root.clientWidth / 2 - x * this.camera.targetScale;
+    this.camera.targetY = this.root.clientHeight / 2 - y * this.camera.targetScale;
     this.clampCameraTarget();
+    if (immediate) {
+      this.camera.x = this.camera.targetX;
+      this.camera.y = this.camera.targetY;
+      this.camera.scale = this.camera.targetScale;
+      this.applyCamera();
+    }
   }
 
   private rectFor(region: Region) {

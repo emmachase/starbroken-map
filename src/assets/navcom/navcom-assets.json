@@ -1,0 +1,82 @@
+{
+  "name": "navcom-material-kit",
+  "version": 1,
+  "generatedBy": "map/scripts/generate-navcom-assets.mjs",
+  "assets": [
+    {
+      "file": "noise-blue.svg",
+      "role": "cool display noise and passive glass grain",
+      "tileable": true
+    },
+    {
+      "file": "noise-red.svg",
+      "role": "hostile-space and alert interference noise",
+      "tileable": true
+    },
+    {
+      "file": "scanline-mask.svg",
+      "role": "repeatable CRT/display scanline overlay",
+      "tileable": true
+    },
+    {
+      "file": "panel-edge-gradient.svg",
+      "role": "cyan edge bloom strip for control surfaces",
+      "tileable": false
+    },
+    {
+      "file": "warning-stripe.svg",
+      "role": "general alert hatch for route warnings and panel rails",
+      "tileable": true
+    },
+    {
+      "file": "critical-stripe.svg",
+      "role": "critical red hatch for NULL exposure, failed routes, and system alarms",
+      "tileable": true
+    },
+    {
+      "file": "caution-stripe.svg",
+      "role": "amber hatch for Frontier exposure and non-critical caution states",
+      "tileable": true
+    },
+    {
+      "file": "stripe-falloff-horizontal.svg",
+      "role": "alpha falloff mask for horizontal alert rails",
+      "tileable": false
+    },
+    {
+      "file": "stripe-falloff-vertical.svg",
+      "role": "alpha falloff mask for vertical alert rails",
+      "tileable": false
+    },
+    {
+      "file": "spark-dot.svg",
+      "role": "route packet, gate glint, and pulse core",
+      "tileable": false
+    },
+    {
+      "file": "ring-soft.svg",
+      "role": "sensor ping, range ring, and selection pulse",
+      "tileable": false
+    },
+    {
+      "file": "glass-smudge.svg",
+      "role": "low-opacity screen grime and reflection texture",
+      "tileable": false
+    },
+    {
+      "file": "bracket-corner.svg",
+      "role": "targeting corner and panel lock bracket",
+      "tileable": false
+    },
+    {
+      "file": "reticle-ping.svg",
+      "role": "hover reticle and lock-on pulse",
+      "tileable": false
+    },
+    {
+      "file": "holo-grid.svg",
+      "role": "fine recessed display grid",
+      "tileable": true
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NAVCOM Stripe Tile Test</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #02040a;
+    }
+    body {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      overflow: hidden;
+    }
+    .tile {
+      position: relative;
+      width: 100%;
+      height: 384px;
+      image-rendering: auto;
+    }
+    .tile.warning { background: url("warning-stripe.svg") 0 0 / 96px 96px repeat; }
+    .tile.critical { background: url("critical-stripe.svg") 0 0 / 96px 96px repeat; }
+    .tile.caution { background: url("caution-stripe.svg") 0 0 / 96px 96px repeat; }
+    .tile::after {
+      content: attr(data-label);
+      position: absolute;
+      left: 16px;
+      top: 14px;
+      color: #eef7ff;
+      font: 800 13px/1.2 Inter, Segoe UI, system-ui, sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 4px #000;
+    }
+    .grid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 384px;
+      background:
+        linear-gradient(90deg, rgba(113, 213, 255, .8) 1px, transparent 1px),
+        linear-gradient(rgba(113, 213, 255, .8) 1px, transparent 1px);
+      background-size: 96px 96px;
+      pointer-events: none;
+      opacity: .42;
+    }
+  </style>
+</head>
+<body>
+  <div class="tile warning" data-label="warning"><div class="grid"></div></div>
+  <div class="tile critical" data-label="critical"><div class="grid"></div></div>
+  <div class="tile caution" data-label="caution"><div class="grid"></div></div>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs><filter id="noise" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.18 .72" numOctaves="5" seed="47"/>
+      <feColorMatrix type="matrix" values="1 0 0 .62 0  0 0 0 .18 0  0 0 0 .28 0  0 0 0 .82 0"/>
+    </filter>
+    <radialGradient id="alarmFalloff" cx="50%" cy="48%" r="74%">
+      <stop offset="0" stop-color="#ff5571" stop-opacity=".22"/>
+      <stop offset=".48" stop-color="#7a1328" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#120309" stop-opacity=".8"/>
+    </radialGradient></defs>
+  <rect width="512" height="512" fill="#120309"/>
+  <rect width="512" height="512" filter="url(#noise)" opacity=".88"/>
+  <rect width="512" height="512" fill="url(#alarmFalloff)" opacity=".54"/>
+</svg>

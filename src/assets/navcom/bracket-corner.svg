@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <defs></defs>
+  <rect width="96" height="96" fill="transparent"/>
+  <path d="M14 74 V22 Q14 14 22 14 H74" fill="none" stroke="#71d5ff" stroke-width="5" stroke-linecap="square"/>
+  <path d="M26 64 V30 Q26 26 30 26 H64" fill="none" stroke="#eef7ff" stroke-width="2" opacity=".68"/>
+  <circle cx="14" cy="74" r="4" fill="#71d5ff"/>
+  <circle cx="74" cy="14" r="3" fill="#eef7ff"/>
+</svg>

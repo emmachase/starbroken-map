@@ -82,6 +82,10 @@ const SECTOR_FRAME_SCALE = 2.2;
 const CONTROL_REVEAL_STEP = 0.03;
 const CONTROL_REVEAL_MAX_ALPHA = 0.92;
 const CONTROL_FADE_STEP = 0.055;
+const STARFIELD_OVERSCAN = 360;
+const STARFIELD_DUST_PARALLAX = 0.012;
+const STARFIELD_FAR_PARALLAX = 0.024;
+const STARFIELD_NEAR_PARALLAX = 0.062;
 const TOP_CONSOLE_RECT: ControlIslandRect = { x: 16, y: 14, width: 560, height: 186 };
 const SEARCH_POPOVER_RECT: ControlIslandRect = { x: 0, y: 84, width: 304, height: 156 };
 const BOTTOM_ROUTE_RECT: ControlIslandRect = { x: 16, y: 0, width: 820, height: 138 };
@@ -135,12 +139,78 @@ type HTMLSourceCanvasWithTransform = HTMLSourceCanvas & {
   getElementTransform?: (element: Element, transform: DOMMatrix) => DOMMatrix | null;
 };
 
-const stars = Array.from({ length: 160 }, (_, index) => ({
-  x: ((index * 97) % 997) / 997,
-  y: ((index * 151) % 991) / 991,
-  size: index % 5 === 0 ? 1.7 : 0.9,
-  blue: index % 9 === 0
-}));
+interface StarPoint {
+  x: number;
+  y: number;
+  size: number;
+  alpha: number;
+  color: number;
+  glow: number;
+  depth: "far" | "near";
+}
+
+const createSeededRandom = (seed: number): (() => number) => {
+  let value = seed >>> 0;
+  return () => {
+    value = (value + 0x6d2b79f5) >>> 0;
+    let t = value;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const randomStarColor = (random: () => number): number => {
+  const roll = random();
+  if (roll > 0.92) return 0x71d5ff;
+  if (roll > 0.82) return 0xf5d760;
+  if (roll > 0.74) return 0xffc7a8;
+  return 0xecf5ff;
+};
+
+const createStarfield = (): StarPoint[] => {
+  const random = createSeededRandom(0x57a6c0de);
+  const stars: StarPoint[] = [];
+
+  for (let index = 0; index < 420; index += 1) {
+    const bright = random() > 0.86;
+    stars.push({
+      x: random(),
+      y: random(),
+      size: bright ? 1.15 + random() * 1.8 : 0.45 + random() * 0.9,
+      alpha: bright ? 0.5 + random() * 0.38 : 0.16 + random() * 0.32,
+      color: randomStarColor(random),
+      glow: bright ? 1.6 + random() * 2.8 : 0,
+      depth: bright || random() > 0.76 ? "near" : "far"
+    });
+  }
+
+  const clusters = [
+    { x: 0.16, y: 0.22, radius: 0.18, count: 46, tint: 0x71d5ff },
+    { x: 0.72, y: 0.18, radius: 0.24, count: 58, tint: 0xecf5ff },
+    { x: 0.62, y: 0.78, radius: 0.2, count: 50, tint: 0xffc7a8 }
+  ];
+
+  for (const cluster of clusters) {
+    for (let index = 0; index < cluster.count; index += 1) {
+      const angle = random() * Math.PI * 2;
+      const distance = Math.sqrt(random()) * cluster.radius;
+      stars.push({
+        x: (cluster.x + Math.cos(angle) * distance + 1) % 1,
+        y: (cluster.y + Math.sin(angle) * distance + 1) % 1,
+        size: 0.4 + random() * 0.9,
+        alpha: 0.12 + random() * 0.22,
+        color: random() > 0.3 ? cluster.tint : randomStarColor(random),
+        glow: 0,
+        depth: "far"
+      });
+    }
+  }
+
+  return stars;
+};
+
+const stars = createStarfield();
 
 export class GalaxyViewport {
   private readonly root: HTMLElement;
@@ -170,7 +240,12 @@ export class GalaxyViewport {
   private readonly bloomRouteLayer = new Graphics();
   private readonly bloomEffects = new Graphics();
   private readonly bloomFilter = new BlurFilter({ strength: 7, quality: 3, kernelSize: 9 });
-  private readonly background = new Graphics();
+  private readonly starDustBlurFilter = new BlurFilter({ strength: 9, quality: 3, kernelSize: 11 });
+  private readonly farStarBlurFilter = new BlurFilter({ strength: 1.35, quality: 2, kernelSize: 5 });
+  private readonly nearStarBlurFilter = new BlurFilter({ strength: 0.55, quality: 2, kernelSize: 5 });
+  private readonly starDust = new Graphics();
+  private readonly farStars = new Graphics();
+  private readonly nearStars = new Graphics();
   private readonly grid = new Graphics();
   private readonly overlays = new Graphics();
   private readonly routeLayer = new Graphics();
@@ -250,6 +325,9 @@ export class GalaxyViewport {
     await this.loadNavcomAssets();
     this.glassOverlayLayer.addChild(this.glassTint);
     this.createDisplayMaterial();
+    this.starDust.filters = [this.starDustBlurFilter];
+    this.farStars.filters = [this.farStarBlurFilter];
+    this.nearStars.filters = [this.nearStarBlurFilter];
     this.bloomWorld.alpha = 0.48;
     this.bloomWorld.blendMode = "add";
     this.bloomWorld.filters = [this.bloomFilter];
@@ -276,7 +354,7 @@ export class GalaxyViewport {
       this.routeSparkLayer,
       this.particlesLayer
     );
-    this.starfieldLayer.addChild(this.background);
+    this.starfieldLayer.addChild(this.starDust, this.farStars, this.nearStars);
     this.mapWorldLayer.addChild(this.bloomWorld, this.world);
     this.alertInterferenceLayer.addChild(this.alertInterference);
     this.screenRoot.addChild(
@@ -1137,6 +1215,17 @@ export class GalaxyViewport {
     this.world.scale.set(this.camera.scale);
     this.bloomWorld.position.set(this.camera.x, this.camera.y);
     this.bloomWorld.scale.set(this.camera.scale);
+    this.applyStarfieldParallax();
+  }
+
+  private applyStarfieldParallax(): void {
+    const centeredX = this.root.clientWidth / 2 - (this.layout.originX + this.layout.width / 2) * this.camera.scale;
+    const centeredY = this.root.clientHeight / 2 - (this.layout.originY + this.layout.height / 2) * this.camera.scale;
+    const panX = this.camera.x - centeredX;
+    const panY = this.camera.y - centeredY;
+    this.starDust.position.set(-STARFIELD_OVERSCAN + panX * STARFIELD_DUST_PARALLAX, -STARFIELD_OVERSCAN + panY * STARFIELD_DUST_PARALLAX);
+    this.farStars.position.set(-STARFIELD_OVERSCAN + panX * STARFIELD_FAR_PARALLAX, -STARFIELD_OVERSCAN + panY * STARFIELD_FAR_PARALLAX);
+    this.nearStars.position.set(-STARFIELD_OVERSCAN + panX * STARFIELD_NEAR_PARALLAX, -STARFIELD_OVERSCAN + panY * STARFIELD_NEAR_PARALLAX);
   }
 
   private clampCameraTarget(): void {
@@ -1403,11 +1492,38 @@ export class GalaxyViewport {
   private drawBackground(): void {
     const width = this.root.clientWidth;
     const height = this.root.clientHeight;
-    this.background.clear();
-    this.background.rect(0, 0, width, height).fill({ color: 0x030612, alpha: 1 });
+    const fieldWidth = width + STARFIELD_OVERSCAN * 2;
+    const fieldHeight = height + STARFIELD_OVERSCAN * 2;
+    const fieldSize = Math.max(fieldWidth, fieldHeight);
+    this.starDust.clear();
+    this.farStars.clear();
+    this.nearStars.clear();
+    this.starDust.rect(0, 0, fieldWidth, fieldHeight).fill({ color: 0x030612, alpha: 1 });
+
+    this.starDust
+      .circle(fieldWidth * 0.18, fieldHeight * 0.22, fieldSize * 0.26)
+      .fill({ color: 0x0b2440, alpha: 0.075 });
+    this.starDust
+      .circle(fieldWidth * 0.72, fieldHeight * 0.18, fieldSize * 0.34)
+      .fill({ color: 0x10172f, alpha: 0.06 });
+    this.starDust
+      .circle(fieldWidth * 0.62, fieldHeight * 0.78, fieldSize * 0.28)
+      .fill({ color: 0x241121, alpha: 0.045 });
+
     for (const star of stars) {
-      this.background.rect(star.x * width, star.y * height, star.size, star.size).fill({ color: star.blue ? 0x71d5ff : 0xecf5ff, alpha: star.blue ? 0.85 : 0.58 });
+      const layer = star.depth === "near" ? this.nearStars : this.farStars;
+      const x = star.x * fieldWidth;
+      const y = star.y * fieldHeight;
+      if (star.glow > 0) {
+        layer.circle(x, y, star.size * star.glow).fill({ color: star.color, alpha: star.alpha * 0.1 });
+      }
+      if (star.size > 1.8) {
+        layer.moveTo(x - star.size * 1.6, y).lineTo(x + star.size * 1.6, y).stroke({ color: star.color, alpha: star.alpha * 0.22, width: 1 });
+        layer.moveTo(x, y - star.size * 1.2).lineTo(x, y + star.size * 1.2).stroke({ color: star.color, alpha: star.alpha * 0.16, width: 1 });
+      }
+      layer.circle(x, y, star.size).fill({ color: star.color, alpha: star.alpha });
     }
+    this.applyCamera();
   }
 
   private drawGrid(includeLabels = true): void {

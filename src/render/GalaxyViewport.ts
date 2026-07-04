@@ -4,7 +4,7 @@ import { HTMLSource } from "pixi.js/html-source";
 import type { HTMLSourceCanvas } from "pixi.js/html-source";
 import { byCoord, endpointById, GALAXY_SIZE, gates, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
 import type { AppState, MapLocation, Region, RouteStep, SectorName } from "../types";
-import { clamp, fitText } from "./geometry";
+import { clamp } from "./geometry";
 
 interface GalaxyViewportOptions {
   root: HTMLElement;
@@ -1915,21 +1915,21 @@ export class GalaxyViewport {
       const color = zoneColors[region.zone];
       if (state.layers.labels) {
         const denseLabels = this.layout.cell > 58;
-        const nameMax = Math.max(5, Math.floor(rect.w / 7));
-        const slugMax = Math.max(6, Math.floor(rect.w / 6));
-        this.drawHudText(this.regionLabels, region.coord, rect.x + 9, rect.y + 10, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
+        const inset = Math.min(9, Math.max(5, rect.w * 0.08));
+        const labelWidth = Math.max(1, rect.w - inset * 2);
+        this.drawBoundedHudText(this.regionLabels, region.coord, rect.x + inset, rect.y + 10, labelWidth, rect.h * 0.28, color, Math.max(16, this.layout.cell * 0.24), "left", 900);
         if (denseLabels) {
-          this.drawHudText(this.regionLabels, fitText(region.name, nameMax), rect.x + 9, rect.y + rect.h * 0.43, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
-          if (rect.w > 48) this.drawHudText(this.regionLabels, fitText(region.slug, slugMax), rect.x + 9, rect.y + rect.h * 0.62, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
+          this.drawBoundedHudText(this.regionLabels, region.name, rect.x + inset, rect.y + rect.h * 0.43, labelWidth, rect.h * 0.24, 0xedf5ff, Math.max(11, this.layout.cell * 0.145), "left", 800);
+          if (rect.w > 48) this.drawBoundedHudText(this.regionLabels, region.slug, rect.x + inset, rect.y + rect.h * 0.62, labelWidth, rect.h * 0.2, 0xa9b8cf, Math.max(9, this.layout.cell * 0.105), "left", 600);
         }
-        this.drawHudText(this.sectorRegionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2 - this.layout.cell * 0.1, color, this.layout.cell * 0.2, "center", 900);
+        this.drawBoundedHudText(this.sectorRegionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2 - this.layout.cell * 0.1, rect.w - inset * 2, rect.h * 0.34, color, this.layout.cell * 0.2, "center", 900);
         for (const sector of region.sectors) {
           const start = this.pointForCoords(sector.xMin, sector.zMin);
           const end = this.pointForCoords(sector.xMax, sector.zMax);
-          this.drawHudText(this.sectorLabels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.layout.cell * 0.08, 0xa9b8cf, this.layout.cell * 0.135, "center", 800);
+          this.drawBoundedHudText(this.sectorLabels, sector.id, (start.x + end.x) / 2, (start.y + end.y) / 2 - this.layout.cell * 0.08, end.x - start.x - 6, end.y - start.y - 6, 0xa9b8cf, this.layout.cell * 0.135, "center", 800);
         }
       } else {
-        this.drawHudText(this.regionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
+        this.drawBoundedHudText(this.regionLabels, region.coord, rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w - 8, rect.h - 8, color, Math.max(17, this.layout.cell * 0.28), "center", 900);
       }
     }
   }
@@ -1989,6 +1989,83 @@ export class GalaxyViewport {
   }
 
   private drawHudText(target: Container, value: string, x: number, y: number, color: number, size: number, align: "left" | "center", weight = 700): void {
+    const text = this.createHudText(value, color, size, align, weight);
+    text.x = x;
+    text.y = y;
+    if (align === "center") text.anchor.set(0.5, 0);
+    target.addChild(text);
+  }
+
+  private drawBoundedHudText(
+    target: Container,
+    value: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    maxHeight: number,
+    color: number,
+    size: number,
+    align: "left" | "center",
+    weight = 700
+  ): void {
+    if (maxWidth <= 4 || maxHeight <= 4) return;
+    const minSize = Math.max(7, size * 0.68);
+    let text = this.createHudText(value, color, size, align, weight);
+    let measuredWidth = text.width;
+    let measuredHeight = text.height;
+
+    if ((measuredWidth > maxWidth || measuredHeight > maxHeight) && size > minSize) {
+      const scale = Math.min(maxWidth / Math.max(1, measuredWidth), maxHeight / Math.max(1, measuredHeight), 1);
+      text.destroy();
+      text = this.createHudText(value, color, Math.max(minSize, size * scale), align, weight);
+      measuredWidth = text.width;
+      measuredHeight = text.height;
+    }
+
+    if (measuredWidth > maxWidth) {
+      const fittedSize = Number(text.style.fontSize);
+      const fitted = this.ellipsizeMeasuredText(value, maxWidth, color, fittedSize, align, weight);
+      text.destroy();
+      if (!fitted) return;
+      text = this.createHudText(fitted, color, fittedSize, align, weight);
+      measuredWidth = text.width;
+      measuredHeight = text.height;
+    }
+
+    if (measuredWidth > maxWidth || measuredHeight > maxHeight) {
+      text.destroy();
+      return;
+    }
+
+    text.x = x;
+    text.y = y;
+    if (align === "center") text.anchor.set(0.5, 0);
+    target.addChild(text);
+  }
+
+  private ellipsizeMeasuredText(value: string, maxWidth: number, color: number, size: number, align: "left" | "center", weight: number): string {
+    if (value.length <= 1) return value;
+    const ellipsis = "...";
+    let low = 1;
+    let high = value.length;
+    let best = "";
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = `${value.slice(0, mid).trimEnd()}${ellipsis}`;
+      const text = this.createHudText(candidate, color, size, align, weight);
+      const fits = text.width <= maxWidth;
+      text.destroy();
+      if (fits) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best;
+  }
+
+  private createHudText(value: string, color: number, size: number, align: "left" | "center", weight = 700): Text {
     const fontWeight = weight >= 900 ? "900" : weight >= 800 ? "800" : weight >= 700 ? "700" : "600";
     const text = new Text({
       text: value,
@@ -2000,11 +2077,8 @@ export class GalaxyViewport {
         align
       }
     });
-    text.x = x;
-    text.y = y;
     text.resolution = 8;
-    if (align === "center") text.anchor.set(0.5, 0);
-    target.addChild(text);
+    return text;
   }
 
 }

@@ -48,6 +48,8 @@ Acceptance:
 
 ## Phase 1: Pixi Shell Refactor
 
+Status: in progress. The first layer skeleton and asset preload pass is implemented in `src/render/GalaxyViewport.ts`.
+
 Goal: make `GalaxyViewport` the top-level visual compositor for NAVCOM.
 
 Tasks:
@@ -76,6 +78,8 @@ Acceptance:
 - No new interaction regressions for pan, zoom, click, shift-click, or alt-click.
 
 ## Phase 2: HTML Island Host
+
+Status: proof started. A single `top-console` canvas child is created and rendered through `HTMLSource` as the first capability test.
 
 Goal: create the bridge that lets React render controls as direct canvas children and Pixi consume them through `HTMLSource`.
 
@@ -292,11 +296,13 @@ Acceptance:
 
 The first code slice should be intentionally narrow:
 
-- Add NAVCOM asset loading to `GalaxyViewport`.
-- Rename or reorganize the current Pixi layers into the planned layer stack.
-- Add a single `top-console` canvas child and render a small live React island into it.
-- Wrap that island with `HTMLSource` and display it inside `htmlControlLayer`.
-- Verify repaint, focus, click, cleanup, build, and one screenshot.
+- [x] Add NAVCOM asset loading to `GalaxyViewport`.
+- [x] Rename or reorganize the current Pixi layers into the planned layer stack.
+- [x] Add a single `top-console` canvas child.
+- [x] Wrap that island with `HTMLSource` and display it inside `htmlControlLayer`.
+- [x] Verify cleanup, build, and tests.
+- [ ] Replace the temporary DOM proof island with a React-rendered island.
+- [ ] Verify repaint, focus, click, and one screenshot during manual QA.
 
 This proves the risky technology path before moving every control.
 

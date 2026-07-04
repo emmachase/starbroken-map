@@ -1,4 +1,7 @@
-import { Application, Container, Graphics, Text } from "pixi.js";
+import "pixi.js/html-source";
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { HTMLSource } from "pixi.js/html-source";
+import type { HTMLSourceCanvas } from "pixi.js/html-source";
 import { byCoord, endpointById, GALAXY_SIZE, gates, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
 import type { AppState, MapLocation, Region, RouteStep, SectorName } from "../types";
 import { chamferPoints, clamp, fitText } from "./geometry";
@@ -48,6 +51,22 @@ interface LodState {
 }
 
 type HitMode = "region" | "sector" | "component";
+type NavcomAssetId =
+  | "noise-blue"
+  | "noise-red"
+  | "scanline-mask"
+  | "panel-edge-gradient"
+  | "warning-stripe"
+  | "critical-stripe"
+  | "caution-stripe"
+  | "stripe-falloff-horizontal"
+  | "stripe-falloff-vertical"
+  | "spark-dot"
+  | "ring-soft"
+  | "glass-smudge"
+  | "bracket-corner"
+  | "reticle-ping"
+  | "holo-grid";
 
 const MAX_ZOOM = 100;
 const SECTOR_LOD_THRESHOLD = 1.4;
@@ -55,6 +74,35 @@ const COMPONENT_LOD_THRESHOLD = 3.8;
 const LOD12_TRANSITION_SPEED = 0.1;
 const REGION_FRAME_SCALE = 1.18;
 const SECTOR_FRAME_SCALE = 2.2;
+const TOP_CONSOLE_RECT = { x: 16, y: 14, width: 520, height: 64 };
+const NAVCOM_ASSETS: Array<{ alias: NavcomAssetId; src: string }> = [
+  { alias: "noise-blue", src: new URL("../assets/navcom/noise-blue.svg", import.meta.url).href },
+  { alias: "noise-red", src: new URL("../assets/navcom/noise-red.svg", import.meta.url).href },
+  { alias: "scanline-mask", src: new URL("../assets/navcom/scanline-mask.svg", import.meta.url).href },
+  { alias: "panel-edge-gradient", src: new URL("../assets/navcom/panel-edge-gradient.svg", import.meta.url).href },
+  { alias: "warning-stripe", src: new URL("../assets/navcom/warning-stripe.svg", import.meta.url).href },
+  { alias: "critical-stripe", src: new URL("../assets/navcom/critical-stripe.svg", import.meta.url).href },
+  { alias: "caution-stripe", src: new URL("../assets/navcom/caution-stripe.svg", import.meta.url).href },
+  { alias: "stripe-falloff-horizontal", src: new URL("../assets/navcom/stripe-falloff-horizontal.svg", import.meta.url).href },
+  { alias: "stripe-falloff-vertical", src: new URL("../assets/navcom/stripe-falloff-vertical.svg", import.meta.url).href },
+  { alias: "spark-dot", src: new URL("../assets/navcom/spark-dot.svg", import.meta.url).href },
+  { alias: "ring-soft", src: new URL("../assets/navcom/ring-soft.svg", import.meta.url).href },
+  { alias: "glass-smudge", src: new URL("../assets/navcom/glass-smudge.svg", import.meta.url).href },
+  { alias: "bracket-corner", src: new URL("../assets/navcom/bracket-corner.svg", import.meta.url).href },
+  { alias: "reticle-ping", src: new URL("../assets/navcom/reticle-ping.svg", import.meta.url).href },
+  { alias: "holo-grid", src: new URL("../assets/navcom/holo-grid.svg", import.meta.url).href }
+];
+
+interface ControlIsland {
+  id: "top-console";
+  element: HTMLDivElement;
+  source: HTMLSource;
+  sprite: Sprite;
+}
+
+type HTMLSourceCanvasWithTransform = HTMLSourceCanvas & {
+  getElementTransform?: (element: Element, transform: DOMMatrix) => DOMMatrix | null;
+};
 
 const stars = Array.from({ length: 160 }, (_, index) => ({
   x: ((index * 97) % 997) / 997,
@@ -69,7 +117,17 @@ export class GalaxyViewport {
   private readonly onSetOrigin: (coord: string) => void;
   private readonly onSetDestination: (coord: string) => void;
   private readonly app = new Application();
-  private readonly screenLayer = new Container();
+  private readonly screenRoot = new Container();
+  private readonly starfieldLayer = new Container();
+  private readonly deepSpaceNoiseLayer = new Container();
+  private readonly mapWorldLayer = new Container();
+  private readonly mapRouteLayer = new Container();
+  private readonly mapSensorFxLayer = new Container();
+  private readonly htmlControlLayer = new Container();
+  private readonly controlFxLayer = new Container();
+  private readonly glassOverlayLayer = new Container();
+  private readonly alertInterferenceLayer = new Container();
+  private readonly cursorReticleLayer = new Container();
   private readonly world = new Container();
   private readonly background = new Graphics();
   private readonly grid = new Graphics();
@@ -86,8 +144,16 @@ export class GalaxyViewport {
   private readonly effects = new Graphics();
   private readonly particlesLayer = new Graphics();
   private readonly resizeObserver: ResizeObserver;
+  private readonly handleCanvasPaint = (): void => this.syncTopConsoleElementTransform();
   private readonly camera: Camera = { x: 0, y: 0, scale: 1, targetX: 0, targetY: 0, targetScale: 1 };
   private readonly particles: Particle[] = [];
+  private readonly navcomTextures = new Map<NavcomAssetId, Texture>();
+  private controlIsland: ControlIsland | null = null;
+  private htmlCanvas: HTMLSourceCanvasWithTransform | null = null;
+  private htmlSourceWarning: HTMLDivElement | null = null;
+  private htmlSourceDebug: HTMLTextAreaElement | null = null;
+  private transformCorrectionFrame = 0;
+  private htmlTransformCorrection = { x: 0, y: 0 };
   private state: AppState | null = null;
   private hovered: string | null = null;
   private hoveredEndpoint: string | null = null;
@@ -126,6 +192,10 @@ export class GalaxyViewport {
     });
 
     this.root.appendChild(this.app.canvas);
+    this.app.canvas.style.position = "relative";
+    this.htmlCanvas = this.app.canvas as HTMLSourceCanvasWithTransform;
+    this.htmlCanvas.setAttribute("layoutsubtree", "");
+    await this.loadNavcomAssets();
     this.world.addChild(
       this.grid,
       this.overlays,
@@ -141,8 +211,22 @@ export class GalaxyViewport {
       this.effects,
       this.particlesLayer
     );
-    this.screenLayer.addChild(this.background, this.world);
-    this.app.stage.addChild(this.screenLayer);
+    this.starfieldLayer.addChild(this.background);
+    this.mapWorldLayer.addChild(this.world);
+    this.screenRoot.addChild(
+      this.starfieldLayer,
+      this.deepSpaceNoiseLayer,
+      this.mapWorldLayer,
+      this.mapRouteLayer,
+      this.mapSensorFxLayer,
+      this.htmlControlLayer,
+      this.controlFxLayer,
+      this.glassOverlayLayer,
+      this.alertInterferenceLayer,
+      this.cursorReticleLayer
+    );
+    this.app.stage.addChild(this.screenRoot);
+    this.createTopConsoleIsland();
     this.resizeObserver.observe(this.root);
     this.bindCameraInput();
     this.app.ticker.add(() => this.tick());
@@ -185,11 +269,91 @@ export class GalaxyViewport {
 
   destroy(): void {
     this.resizeObserver.disconnect();
-    this.app.destroy(true);
+    if (this.transformCorrectionFrame) window.cancelAnimationFrame(this.transformCorrectionFrame);
+    this.destroyControlIsland();
+    this.htmlSourceWarning?.remove();
+    this.htmlSourceWarning = null;
+    this.htmlSourceDebug?.remove();
+    this.htmlSourceDebug = null;
+    this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true });
+  }
+
+  private async loadNavcomAssets(): Promise<void> {
+    const loaded = await Assets.load(NAVCOM_ASSETS.map((asset) => ({
+      alias: asset.alias,
+      src: asset.src,
+      parser: "svg"
+    })));
+    for (const asset of NAVCOM_ASSETS) {
+      const texture = loaded[asset.alias] as Texture | undefined;
+      if (texture) this.navcomTextures.set(asset.alias, texture);
+    }
+  }
+
+  private createTopConsoleIsland(): void {
+    if (!this.htmlCanvas?.requestPaint) {
+      this.showHtmlSourceWarning();
+      return;
+    }
+
+    const element = document.createElement("div");
+    element.className = "navcom-canvas-island navcom-top-console-island";
+    element.dataset.island = "top-console";
+    element.innerHTML = `
+      <div class="island-kicker">HTMLSOURCE LINK</div>
+      <div class="island-title">TOP CONSOLE / LIVE CONTROL PROOF</div>
+      <label class="island-input">
+        <span>Ping</span>
+        <input value="editable signal" aria-label="HTMLSource proof input" />
+      </label>
+    `;
+    this.app.canvas.appendChild(element);
+
+    const source = new HTMLSource({
+      resource: element,
+      canvas: this.htmlCanvas,
+      autoRequestPaint: true
+    });
+    const sprite = Sprite.from(source);
+    sprite.alpha = 0.92;
+    this.htmlControlLayer.addChild(sprite);
+    this.controlIsland = { id: "top-console", element, source, sprite };
+    this.createHtmlSourceDebug();
+    this.htmlCanvas.addEventListener("paint", this.handleCanvasPaint);
+    this.layoutTopConsoleIsland();
+    source.requestPaint();
+  }
+
+  private destroyControlIsland(): void {
+    if (!this.controlIsland) return;
+    this.htmlCanvas?.removeEventListener("paint", this.handleCanvasPaint);
+    this.htmlControlLayer.removeChild(this.controlIsland.sprite);
+    this.controlIsland.sprite.destroy({ texture: true, textureSource: false });
+    this.controlIsland.source.destroy();
+    this.controlIsland.element.remove();
+    this.controlIsland = null;
+  }
+
+  private createHtmlSourceDebug(): void {
+    const debug = document.createElement("textarea");
+    debug.className = "navcom-htmlsource-debug";
+    debug.readOnly = true;
+    debug.value = "HTMLSource sync pending";
+    this.root.appendChild(debug);
+    this.htmlSourceDebug = debug;
+  }
+
+  private showHtmlSourceWarning(): void {
+    const warning = document.createElement("div");
+    warning.className = "navcom-htmlsource-warning";
+    warning.textContent = "HTML-in-canvas unavailable: enable the experimental browser API for NAVCOM control compositing.";
+    this.root.appendChild(warning);
+    this.htmlSourceWarning = warning;
   }
 
   private bindCameraInput(): void {
     this.app.canvas.addEventListener("wheel", (event) => {
+      if (this.isControlEvent(event)) return;
       event.preventDefault();
       const bounds = this.app.canvas.getBoundingClientRect();
       const pointer = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
@@ -202,6 +366,7 @@ export class GalaxyViewport {
     }, { passive: false });
 
     this.app.canvas.addEventListener("pointerdown", (event) => {
+      if (this.isControlEvent(event)) return;
       if (event.button !== 0) return;
       this.isDragging = true;
       this.suppressNextTap = false;
@@ -226,11 +391,100 @@ export class GalaxyViewport {
     });
   }
 
+  private isControlEvent(event: Event): boolean {
+    const target = event.target;
+    return target instanceof Element && Boolean(target.closest(".navcom-canvas-island"));
+  }
+
   private resize(): void {
     this.computeLayout();
     this.drawBackground();
+    this.layoutTopConsoleIsland();
     this.renderStatic();
     this.fitMap(false);
+  }
+
+  private layoutTopConsoleIsland(): void {
+    if (!this.controlIsland) return;
+    const islandWidth = TOP_CONSOLE_RECT.width;
+    this.controlIsland.element.style.width = `${islandWidth}px`;
+    this.controlIsland.element.style.height = `${TOP_CONSOLE_RECT.height}px`;
+    this.controlIsland.element.style.transformOrigin = "0 0";
+    this.controlIsland.sprite.position.set(TOP_CONSOLE_RECT.x, TOP_CONSOLE_RECT.y);
+    this.controlIsland.sprite.scale.set(1);
+    this.controlIsland.source.resize(islandWidth, TOP_CONSOLE_RECT.height);
+    this.controlIsland.source.requestPaint();
+  }
+
+  private syncTopConsoleElementTransform(): void {
+    if (!this.controlIsland || !this.htmlCanvas?.getElementTransform) return;
+    const element = this.controlIsland.element;
+    element.style.transform = "";
+    const elementWidth = Math.max(1, element.offsetWidth);
+    const elementHeight = Math.max(1, element.offsetHeight);
+    const bounds = {
+      x: TOP_CONSOLE_RECT.x,
+      y: TOP_CONSOLE_RECT.y,
+      width: TOP_CONSOLE_RECT.width,
+      height: TOP_CONSOLE_RECT.height
+    };
+    const screenSpaceTransform = new DOMMatrix()
+      .translate(bounds.x, bounds.y)
+      .scale(
+        bounds.width / elementWidth,
+        bounds.height / elementHeight
+      );
+    try {
+      const computedTransform = this.htmlCanvas.getElementTransform(element, screenSpaceTransform);
+      if (computedTransform) {
+        const correctedCssTransform = this.cssMatrixWithCorrection(computedTransform, this.htmlTransformCorrection.x, this.htmlTransformCorrection.y);
+        element.style.transform = correctedCssTransform;
+        this.scheduleTopConsoleTransformCorrection(computedTransform, bounds, correctedCssTransform);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "InvalidStateError") return;
+      throw error;
+    }
+  }
+
+  private cssMatrixWithCorrection(transform: DOMMatrix, dx: number, dy: number): string {
+    return `matrix(${transform.a}, ${transform.b}, ${transform.c}, ${transform.d}, ${transform.e + dx}, ${transform.f + dy})`;
+  }
+
+  private scheduleTopConsoleTransformCorrection(transform: DOMMatrix, bounds: { x: number; y: number; width: number; height: number }, currentCssTransform: string): void {
+    if (!this.controlIsland) return;
+    if (this.transformCorrectionFrame) window.cancelAnimationFrame(this.transformCorrectionFrame);
+    this.transformCorrectionFrame = window.requestAnimationFrame(() => {
+      this.transformCorrectionFrame = 0;
+      if (!this.controlIsland) return;
+      const canvasRect = this.app.canvas.getBoundingClientRect();
+      const actual = this.controlIsland.element.getBoundingClientRect();
+      const expected = {
+        left: canvasRect.left + bounds.x,
+        top: canvasRect.top + bounds.y,
+        width: bounds.width,
+        height: bounds.height
+      };
+      const residualX = expected.left - actual.left;
+      const residualY = expected.top - actual.top;
+      this.htmlTransformCorrection.x += residualX;
+      this.htmlTransformCorrection.y += residualY;
+      const correctedCssTransform = this.cssMatrixWithCorrection(transform, this.htmlTransformCorrection.x, this.htmlTransformCorrection.y);
+      this.controlIsland.element.style.transform = correctedCssTransform;
+      if (this.htmlSourceDebug) {
+        const debugText = [
+          `HTMLSource residual x ${residualX.toFixed(1)} y ${residualY.toFixed(1)}`,
+          `correction x ${this.htmlTransformCorrection.x.toFixed(1)} y ${this.htmlTransformCorrection.y.toFixed(1)}`,
+          `expected ${expected.left.toFixed(1)},${expected.top.toFixed(1)} ${expected.width.toFixed(1)}x${expected.height.toFixed(1)}`,
+          `actual ${actual.left.toFixed(1)},${actual.top.toFixed(1)} ${actual.width.toFixed(1)}x${actual.height.toFixed(1)}`,
+          `offset ${this.controlIsland.element.offsetWidth}x${this.controlIsland.element.offsetHeight}`,
+          `paintTransform ${currentCssTransform}`,
+          `transform ${correctedCssTransform}`
+        ].join(" / ");
+        this.htmlSourceDebug.value = debugText;
+        console.info(debugText);
+      }
+    });
   }
 
   private computeLayout(): void {

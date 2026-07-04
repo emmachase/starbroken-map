@@ -13,9 +13,9 @@ This plan is intentionally implementation-facing. Strategy lives in:
 
 ## Current Baseline
 
-- React owns the full page shell in `src/App.tsx`.
-- Pixi owns only the central map in `src/render/GalaxyViewport.ts`.
-- The main visible UI is still topbar, route strip, left panel, viewport, right panel.
+- React owns state and HTML island content in `src/App.tsx`.
+- Pixi owns the full NAVCOM display surface in `src/render/GalaxyViewport.ts`.
+- The main visible UI is now the viewport with canvas-hosted top console, bottom route command, vector drawer, signal inspector, layer dock, and toast console.
 - The generated NAVCOM asset kit exists in `src/assets/navcom/` and has passed first visual QA.
 - `HTMLSource` is the chosen control path. All visible controls should become canvas-child HTML islands rendered into Pixi textures.
 
@@ -30,7 +30,7 @@ This plan is intentionally implementation-facing. Strategy lives in:
 
 ## Phase 0: Harness And Guardrails
 
-Status: ready to start.
+Status: in progress. The runtime `HTMLSource` capability check and visible unsupported-browser warning are implemented in `GalaxyViewport`; build/test guardrails are being run after each slice. A local QA checklist is linked below.
 
 Tasks:
 
@@ -44,11 +44,11 @@ Acceptance:
 
 - Unsupported browser state fails clearly.
 - Current app still boots with no behavior regression.
-- QA commands are documented in this file or a linked QA doc.
+- QA commands are documented in `visual-qa-navcom-assets.md` and `navcom-qa-checklist.md`.
 
 ## Phase 1: Pixi Shell Refactor
 
-Status: in progress. The first layer skeleton and asset preload pass is implemented in `src/render/GalaxyViewport.ts`.
+Status: in progress. The layer skeleton, asset preload pass, display material sprites, control chrome, alert interference, route spark layer, and responsive island rect pass are implemented in `src/render/GalaxyViewport.ts`.
 
 Goal: make `GalaxyViewport` the top-level visual compositor for NAVCOM.
 
@@ -79,7 +79,7 @@ Acceptance:
 
 ## Phase 2: HTML Island Host
 
-Status: React island plumbing is active. `top-console`, `bottom-route-command`, `layer-dock`, `left-vector-drawer`, `right-signal-inspector`, and `toast-console` canvas children are created and rendered through `HTMLSource`; React portals live content into each host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding. The old standalone route strip, left sidebar, right sidebar, DOM toast overlay, and interactive topbar controls have been removed from the page shell so route metrics/profile action, reset, layer toggles, vector setup, signal inspection, search text, and status feedback now live on the canvas. The remaining header is a passive identity rail.
+Status: React island plumbing is active. `top-console`, `bottom-route-command`, `layer-dock`, `left-vector-drawer`, `right-signal-inspector`, and `toast-console` canvas children are created and rendered through `HTMLSource`; React portals live content into each host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding. The old standalone route strip, left sidebar, right sidebar, DOM toast overlay, and topbar have been removed from the page shell so route metrics/profile action, reset, layer toggles, vector setup, signal inspection, search text, and status feedback now live on the canvas. Canvas-hosted command search has been restored with preview and commit behavior. The route list has moved into a bottom command timeline, and inspector raw/list content is now behind tabs.
 
 Goal: create the bridge that lets React render controls as direct canvas children and Pixi consume them through `HTMLSource`.
 
@@ -176,11 +176,12 @@ Tasks:
 - Add corner brackets from `bracket-corner.svg` to active panels and selected controls.
 - Add low-alpha scanlines from `scanline-mask.svg`.
 - Add panel grid interiors from `holo-grid.svg` where they do not hurt readability.
-- Add alert rail hatches with the split stripe assets:
+- Reserve alert rail hatches for framed warning rails outside dense data regions:
   - `warning-stripe.svg` for general warnings.
   - `critical-stripe.svg` for NULL exposure, failed routes, hard alarms.
   - `caution-stripe.svg` for Frontier exposure or degraded scan states.
 - Apply `stripe-falloff-horizontal.svg` and `stripe-falloff-vertical.svg` to ordinary stripe placements.
+- Do not place warning stripes over the bottom route timeline; the timeline already uses color as route data.
 - Keep live text legible by limiting filters on active input controls.
 
 Acceptance:
@@ -308,9 +309,18 @@ The first code slice should be intentionally narrow:
 - [x] Add `left-vector-drawer` and move Jump Plotter controls into the canvas.
 - [x] Add `right-signal-inspector` and move Details Panel content into the canvas.
 - [x] Add `toast-console` and move status feedback into the canvas.
-- [x] Move reset into `bottom-route-command` and reduce the topbar to passive identity.
-- [x] Re-run `npm run build` and `npm test -- --run` after each route/layer/vector/inspector/toast/topbar cleanup move.
-- [ ] Verify one screenshot during manual QA.
+- [x] Move reset into `bottom-route-command` and remove the outer topbar.
+- [x] Restore command search behavior inside `top-console`.
+- [x] Move route steps into a compact bottom timeline.
+- [x] Add inspector tabs for progressive disclosure.
+- [x] Add Pixi control chrome, corner brackets, low-alpha display material, and warning interference.
+- [x] Apply split alert stripe assets through falloff masks only where a warning rail has enough empty frame space.
+- [x] Keep warning stripes out of dense controls such as the bottom route timeline; alert state there is carried by chrome and low-alpha interference.
+- [x] Replace route packet circles with pooled `spark-dot` sprites and add route commit/gate pulse feedback.
+- [x] Add breakpoint-aware island rects and compact stacked mobile canvas height.
+- [x] Remove stale DOM shell CSS from the old topbar/route strip layout.
+- [x] Re-run `npm run build` and `npm test -- --run` after each route/layer/vector/inspector/toast/topbar removal/search/disclosure move.
+- [x] Verify desktop/mobile screenshots and interaction/performance QA. See `navcom-qa-report.md`.
 
 This proves the risky technology path before moving every control.
 

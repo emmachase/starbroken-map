@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Command } from "cmdk";
 import {
   byCoord,
   defaultDestination,
@@ -26,6 +27,8 @@ import type { AppState, Endpoint, HullClass, MapLocation, Region, RouteProfile, 
 const zones: Zone[] = ["CORE", "MID", "FRONTIER", "NULL"];
 const hulls: HullClass[] = ["Frigate", "Destroyer", "Cruiser", "Battlecruiser", "Colossal"];
 const routeProfiles: RouteProfile[] = ["safe", "fast", "cheap", "risky"];
+const inspectorTabs = ["intel", "route", "links", "raw"] as const;
+type InspectorTab = (typeof inspectorTabs)[number];
 
 const defaultState = (): AppState => ({
   profile: "safe",
@@ -73,6 +76,43 @@ const endpointGroups = {
   locations: endpoints.filter((endpoint) => endpoint.kind === "location")
 };
 
+type SearchOption =
+  | { commandValue: string; id: string; type: "region"; label: string; detail: string; keywords: string[]; zone: Zone }
+  | { commandValue: string; id: string; type: "location"; label: string; detail: string; keywords: string[]; zone: Zone };
+
+const searchOptions: SearchOption[] = [
+  ...regions.map((region) => ({
+    commandValue: `region:${region.coord}`,
+    id: region.coord,
+    type: "region" as const,
+    label: `${region.coord} - ${region.name}`,
+    detail: `${region.zone} / ${region.slug}`,
+    keywords: [region.coord, region.name, region.slug, region.zone, `r${region.slug.split("-r")[1]}`],
+    zone: region.zone
+  })),
+  ...locations.map((location) => ({
+    commandValue: `location-option:${location.id}`,
+    id: endpointById.has(`location:${location.id}`) ? `location:${location.id}` : location.region,
+    type: "location" as const,
+    label: location.name,
+    detail: [
+      locationKindLabel[location.kind],
+      location.sector ? `${location.region}.${location.sector}` : location.region,
+      location.hidden ? "coordinates hidden" : location.details.coordinates,
+      location.resources?.slice(0, 3).join(", ")
+    ].filter(Boolean).join(" / "),
+    keywords: [
+      location.name,
+      location.kind,
+      location.region,
+      location.zone,
+      location.sector ?? "",
+      location.resources?.join(" ") ?? ""
+    ],
+    zone: location.zone
+  }))
+];
+
 const calculateRouteState = (state: AppState): AppState => {
   const route = findPath(state);
   return {
@@ -91,6 +131,12 @@ const riskLabel = (state: AppState): string => {
 const selectedRouteEndpoint = (selected: string): string | null => {
   if (endpointById.has(selected)) return selected;
   return byCoord.has(selected) ? `sector:${selected}:NW` : null;
+};
+
+const routeStepEndpoint = (step: RouteStep): string => {
+  if (step.locationId && endpointById.has(`location:${step.locationId}`)) return `location:${step.locationId}`;
+  if (step.sector && endpointById.has(`sector:${step.coord}:${step.sector}`)) return `sector:${step.coord}:${step.sector}`;
+  return step.coord;
 };
 
 const regionMatches = (region: Region, query: string): boolean => {
@@ -138,12 +184,28 @@ function App() {
     showToast("NAVCOM reset");
   };
 
+  const selectSearchOption = (id: string): void => {
+    const option = searchOptions.find((item) => item.id === id);
+    patchState({ selected: id, search: option?.label ?? state.search });
+    if (option) showToast(`${option.type === "region" ? "Region" : "Signal"} selected: ${option.label}`);
+  };
+
   return (
     <>
 
       <main className="shell">
         <section className="viewport-wrap">
-          <GalaxyMap state={state} patchState={patchState} toast={toast} toastVisible={toastVisible} onProfileChange={setProfile} onReset={resetNavcom} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
+          <GalaxyMap
+            state={state}
+            patchState={patchState}
+            toast={toast}
+            toastVisible={toastVisible}
+            onProfileChange={setProfile}
+            onReset={resetNavcom}
+            onSearchSelect={selectSearchOption}
+            onSelect={(selected) => patchState({ selected })}
+            onEndpoint={setRouteEndpoint}
+          />
         </section>
       </main>
     </>
@@ -171,6 +233,67 @@ function Toggle({ label, checked, className = "", onChange, children }: { label:
       {children}
       {label}
     </label>
+  );
+}
+
+function VectorDrawerIsland({
+  state,
+  patchState,
+  open,
+  onOpenChange,
+  onEndpoint
+}: StateProps & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+}) {
+  if (!open) {
+    return (
+      <button type="button" className="drawer-tab vertical" aria-label="Open vector setup" title="Vector setup" onClick={() => onOpenChange(true)}>
+        <span>Vector</span>
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button type="button" className="drawer-close" aria-label="Collapse vector setup" title="Collapse vector setup" onClick={() => onOpenChange(false)}>Close</button>
+      <JumpPlotter state={state} patchState={patchState} onEndpoint={onEndpoint} island />
+    </>
+  );
+}
+
+function SignalInspectorIsland({
+  state,
+  open,
+  onOpenChange,
+  onSelect,
+  onEndpoint
+}: {
+  state: AppState;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (selected: string) => void;
+  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+}) {
+  const selectedEndpoint = endpointById.get(state.selected);
+  const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
+  const label = selectedEndpoint?.label ?? (selected ? `${selected.coord} - ${selected.name}` : state.selected);
+  const zone = selected?.zone ?? "CORE";
+
+  if (!open) {
+    return (
+      <button type="button" className={`drawer-tab vertical ${zoneClass[zone]}`} aria-label="Open signal inspector" title={label} onClick={() => onOpenChange(true)}>
+        <span>Intel</span>
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button type="button" className="drawer-close" aria-label="Collapse signal inspector" title="Collapse signal inspector" onClick={() => onOpenChange(false)}>Close</button>
+      <DetailsPanel state={state} onSelect={onSelect} onEndpoint={onEndpoint} island />
+    </>
   );
 }
 
@@ -232,18 +355,6 @@ function JumpPlotter({ state, patchState, onEndpoint, island = false }: StatePro
 
         <FuelBurn state={state} />
 
-        <div className="section-title">Jump Sequence</div>
-        <div className="list">
-          {state.route.length ? state.route.map((step, index) => (
-            <RouteStepCard key={`${step.id}-${index}`} step={step} index={index} onSelect={(selected) => patchState({ selected })} />
-          )) : (
-            <div className="readout">
-              <strong>No route found</strong>
-              <div className="muted">Try allowing gates, increasing drive tier, or disabling Bypass NULL.</div>
-            </div>
-          )}
-        </div>
-
         {selectedEndpoint ? (
           <div className="action-row">
             <button type="button" onClick={() => onEndpoint("origin", selectedEndpoint)}>Set Origin</button>
@@ -304,28 +415,6 @@ function FuelBurn({ state }: { state: AppState }) {
   );
 }
 
-function RouteStepCard({ step, index, onSelect }: { step: RouteStep; index: number; onSelect: (selected: string) => void }) {
-  const region = byCoord.get(step.coord);
-  if (!region) return null;
-  const location = step.locationId ? locations.find((item) => item.id === step.locationId) : undefined;
-  const title = location ? `${location.name} (${region.coord}.${step.sector})` : `${region.coord}.${step.sector ?? "--"} - ${region.name}`;
-  const endpointId = location && endpointById.has(`location:${location.id}`)
-    ? `location:${location.id}`
-    : step.sector && endpointById.has(`sector:${region.coord}:${step.sector}`)
-      ? `sector:${region.coord}:${step.sector}`
-      : region.coord;
-
-  return (
-    <button type="button" className="route-step" onClick={() => onSelect(endpointId)}>
-      <div className="stepnum">{index + 1}</div>
-      <div>
-        <b>{title}</b>
-        <div className="muted"><span style={{ color: zoneCss[region.zone] }}>{region.zone}</span> / {step.label}</div>
-      </div>
-    </button>
-  );
-}
-
 function GalaxyMap({
   state,
   patchState,
@@ -333,6 +422,7 @@ function GalaxyMap({
   toastVisible,
   onProfileChange,
   onReset,
+  onSearchSelect,
   onSelect,
   onEndpoint
 }: {
@@ -342,17 +432,22 @@ function GalaxyMap({
   toastVisible: boolean;
   onProfileChange: (profile: RouteProfile) => void;
   onReset: () => void;
+  onSearchSelect: (selected: string) => void;
   onSelect: (selected: string) => void;
   onEndpoint: (kind: "origin" | "destination", coord: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<GalaxyViewport | null>(null);
   const [topConsoleHost, setTopConsoleHost] = useState<HTMLDivElement | null>(null);
+  const [searchPopoverHost, setSearchPopoverHost] = useState<HTMLDivElement | null>(null);
   const [bottomRouteHost, setBottomRouteHost] = useState<HTMLDivElement | null>(null);
   const [layerDockHost, setLayerDockHost] = useState<HTMLDivElement | null>(null);
   const [leftVectorHost, setLeftVectorHost] = useState<HTMLDivElement | null>(null);
   const [rightInspectorHost, setRightInspectorHost] = useState<HTMLDivElement | null>(null);
   const [toastHost, setToastHost] = useState<HTMLDivElement | null>(null);
+  const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
+  const [vectorDrawerOpen, setVectorDrawerOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -367,6 +462,7 @@ function GalaxyMap({
       onSetDestination: (coord) => onEndpoint("destination", coord),
       onControlHost: (id, element) => {
         if (id === "top-console") setTopConsoleHost(element);
+        if (id === "search-popover") setSearchPopoverHost(element);
         if (id === "bottom-route-command") setBottomRouteHost(element);
         if (id === "layer-dock") setLayerDockHost(element);
         if (id === "left-vector-drawer") setLeftVectorHost(element);
@@ -391,6 +487,7 @@ function GalaxyMap({
       if (initialized) viewport.destroy();
       viewportRef.current = null;
       setTopConsoleHost(null);
+      setSearchPopoverHost(null);
       setBottomRouteHost(null);
       setLayerDockHost(null);
       setLeftVectorHost(null);
@@ -405,16 +502,55 @@ function GalaxyMap({
 
   useEffect(() => {
     viewportRef.current?.requestControlPaint();
-  }, [state, toast, toastVisible, topConsoleHost, bottomRouteHost, layerDockHost, leftVectorHost, rightInspectorHost, toastHost]);
+  }, [
+    state,
+    toast,
+    toastVisible,
+    searchPopoverOpen,
+    vectorDrawerOpen,
+    inspectorOpen,
+    topConsoleHost,
+    searchPopoverHost,
+    bottomRouteHost,
+    layerDockHost,
+    leftVectorHost,
+    rightInspectorHost,
+    toastHost
+  ]);
+
+  useEffect(() => {
+    viewportRef.current?.setControlIslandExpanded("search-popover", searchPopoverOpen);
+  }, [searchPopoverOpen, searchPopoverHost]);
+
+  useEffect(() => {
+    viewportRef.current?.setControlIslandExpanded("left-vector-drawer", vectorDrawerOpen);
+  }, [vectorDrawerOpen, leftVectorHost]);
+
+  useEffect(() => {
+    viewportRef.current?.setControlIslandExpanded("right-signal-inspector", inspectorOpen);
+  }, [inspectorOpen, rightInspectorHost]);
 
   return (
     <div ref={rootRef} className="galaxy-viewport" aria-label="Starbroken galaxy map">
       {topConsoleHost ? createPortal(
-        <TopConsoleIsland state={state} onSearchChange={(search) => patchState({ search })} />,
+        <TopConsoleIsland
+          state={state}
+          onSearchChange={(search) => patchState({ search })}
+          onSearchPreview={(selected) => patchState({ selected })}
+          onSearchSelect={onSearchSelect}
+          onSearchOpenChange={setSearchPopoverOpen}
+          searchPopoverHost={searchPopoverHost}
+        />,
         topConsoleHost
       ) : null}
       {bottomRouteHost ? createPortal(
-        <BottomRouteIsland state={state} onProfileChange={onProfileChange} onReplot={() => patchState({})} onReset={onReset} />,
+        <BottomRouteIsland
+          state={state}
+          onProfileChange={onProfileChange}
+          onReplot={() => patchState({})}
+          onReset={onReset}
+          onRouteStepSelect={(selected) => patchState({ selected })}
+        />,
         bottomRouteHost
       ) : null}
       {layerDockHost ? createPortal(
@@ -422,11 +558,23 @@ function GalaxyMap({
         layerDockHost
       ) : null}
       {leftVectorHost ? createPortal(
-        <JumpPlotter state={state} patchState={patchState} onEndpoint={onEndpoint} island />,
+        <VectorDrawerIsland
+          state={state}
+          patchState={patchState}
+          open={vectorDrawerOpen}
+          onOpenChange={setVectorDrawerOpen}
+          onEndpoint={onEndpoint}
+        />,
         leftVectorHost
       ) : null}
       {rightInspectorHost ? createPortal(
-        <DetailsPanel state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={onEndpoint} island />,
+        <SignalInspectorIsland
+          state={state}
+          open={inspectorOpen}
+          onOpenChange={setInspectorOpen}
+          onSelect={(selected) => patchState({ selected })}
+          onEndpoint={onEndpoint}
+        />,
         rightInspectorHost
       ) : null}
       {toastHost ? createPortal(
@@ -441,13 +589,55 @@ function ToastConsole({ message, visible }: { message: string; visible: boolean 
   return <div className="toast-message" style={{ opacity: visible ? 1 : 0 }}>{message}</div>;
 }
 
-function TopConsoleIsland({ state, onSearchChange }: { state: AppState; onSearchChange: (search: string) => void }) {
+function TopConsoleIsland({
+  state,
+  onSearchChange,
+  onSearchPreview,
+  onSearchSelect,
+  onSearchOpenChange,
+  searchPopoverHost
+}: {
+  state: AppState;
+  onSearchChange: (search: string) => void;
+  onSearchPreview: (selected: string) => void;
+  onSearchSelect: (selected: string) => void;
+  onSearchOpenChange: (open: boolean) => void;
+  searchPopoverHost: HTMLDivElement | null;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [activeValue, setActiveValue] = useState(searchOptions[0]?.commandValue ?? "");
+  const optionByCommandValue = useMemo(() => new Map(searchOptions.map((option) => [option.commandValue, option])), []);
   const selected = endpointById.get(state.selected) ?? byCoord.get(state.selected);
   const selectedLabel = selected
     ? "label" in selected
       ? selected.label
       : `${selected.coord} - ${selected.name}`
     : state.selected;
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !searchPopoverHost?.contains(target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [searchPopoverHost]);
+
+  useEffect(() => {
+    onSearchOpenChange(open);
+  }, [open, onSearchOpenChange]);
+
+  const choose = (id: string): void => {
+    onSearchSelect(id);
+    setOpen(false);
+  };
+
+  const setActiveCommand = (commandValue: string): void => {
+    setActiveValue(commandValue);
+    const option = optionByCommandValue.get(commandValue);
+    if (option) onSearchPreview(option.id);
+  };
 
   return (
     <>
@@ -460,20 +650,88 @@ function TopConsoleIsland({ state, onSearchChange }: { state: AppState; onSearch
           <span>{selectedLabel}</span>
         </div>
       </div>
-      <label className="island-input">
-        <span>Scan</span>
-        <input
-          value={state.search}
-          aria-label="Signal scan"
-          placeholder="A1, Halcyon, NULL..."
-          onChange={(event) => onSearchChange(event.target.value)}
-        />
-      </label>
+      <Command
+        ref={rootRef}
+        className="nav-command island-command"
+        label="Signal scan"
+        loop
+        shouldFilter
+        value={activeValue}
+        onValueChange={setActiveCommand}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+        }}
+      >
+        <label className="island-input">
+          <span>Scan</span>
+          <Command.Input
+            value={state.search}
+            onValueChange={(search) => {
+              onSearchChange(search);
+              setOpen(true);
+            }}
+            placeholder="A1, Halcyon, NULL..."
+            autoComplete="off"
+            onFocus={() => setOpen(true)}
+          />
+        </label>
+        {open && searchPopoverHost ? createPortal(
+          <Command.List className="nav-command-list island-command-list">
+            <Command.Empty className="nav-command-empty">No matches.</Command.Empty>
+            <Command.Group heading="Regions">
+              {searchOptions.filter((option) => option.type === "region").map((option) => (
+                <SearchCommandItem key={option.commandValue} option={option} onChoose={choose} />
+              ))}
+            </Command.Group>
+            <Command.Group heading="Signals">
+              {searchOptions.filter((option) => option.type === "location").map((option) => (
+                <SearchCommandItem key={option.commandValue} option={option} onChoose={choose} />
+              ))}
+            </Command.Group>
+          </Command.List>,
+          searchPopoverHost
+        ) : null}
+      </Command>
     </>
   );
 }
 
-function BottomRouteIsland({ state, onProfileChange, onReplot, onReset }: { state: AppState; onProfileChange: (profile: RouteProfile) => void; onReplot: () => void; onReset: () => void }) {
+function SearchCommandItem({ option, onChoose }: { option: SearchOption; onChoose: (id: string) => void }) {
+  return (
+    <Command.Item
+      value={option.commandValue}
+      keywords={option.keywords}
+      onClick={() => onChoose(option.id)}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onChoose(option.id);
+      }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onChoose(option.id);
+      }}
+      onSelect={() => onChoose(option.id)}
+      className="nav-command-item"
+    >
+      <b>{option.label}</b>
+      <span><span style={{ color: zoneCss[option.zone] }}>{option.zone}</span> / {option.detail}</span>
+    </Command.Item>
+  );
+}
+
+function BottomRouteIsland({
+  state,
+  onProfileChange,
+  onReplot,
+  onReset,
+  onRouteStepSelect
+}: {
+  state: AppState;
+  onProfileChange: (profile: RouteProfile) => void;
+  onReplot: () => void;
+  onReset: () => void;
+  onRouteStepSelect: (selected: string) => void;
+}) {
   return (
     <>
       <div className="route-island-main">
@@ -498,7 +756,39 @@ function BottomRouteIsland({ state, onProfileChange, onReplot, onReset }: { stat
           <button type="button" onClick={onReset}>Reset</button>
         </div>
       </div>
+      <RouteTimeline state={state} onSelect={onRouteStepSelect} />
     </>
+  );
+}
+
+function RouteTimeline({ state, onSelect }: { state: AppState; onSelect: (selected: string) => void }) {
+  if (!state.route.length) {
+    return <div className="route-timeline empty">No route solution</div>;
+  }
+
+  return (
+    <div className="route-timeline" aria-label="Route timeline">
+      {state.route.map((step, index) => {
+        const region = byCoord.get(step.coord);
+        const zone = region?.zone ?? "CORE";
+        const label = step.sector ? `${step.coord}.${step.sector}` : step.coord;
+        const selected = routeStepEndpoint(step);
+        return (
+          <button
+            key={`${step.id}-${index}`}
+            type="button"
+            className={`route-timeline-step ${zoneClass[zone]}`}
+            title={`${index + 1}: ${label} / ${step.label}`}
+            onMouseEnter={() => onSelect(selected)}
+            onFocus={() => onSelect(selected)}
+            onClick={() => onSelect(selected)}
+          >
+            <span>{index + 1}</span>
+            <b>{label}</b>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -538,6 +828,7 @@ function LayerDockIsland({ state, patchState }: StateProps) {
 }
 
 function DetailsPanel({ state, onSelect, onEndpoint, island = false }: { state: AppState; onSelect: (selected: string) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void; island?: boolean }) {
+  const [activeTab, setActiveTab] = useState<InspectorTab>("intel");
   const selectedEndpoint = endpointById.get(state.selected);
   const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
   const stats = useMemo(() => {
@@ -573,36 +864,81 @@ function DetailsPanel({ state, onSelect, onEndpoint, island = false }: { state: 
         <div className="panel-sub">{detailSub}</div>
       </div>
       <div className="panel-body">
-        <div className={`readout ${zoneClass[selected.zone]}`}>
-          {selectedLocation ? (
-            <LocationDetails location={selectedLocation} selected={selected} endpoint={selectedEndpoint} />
-          ) : selectedSector ? (
-            <SectorDetails selected={selected} sector={selectedSector} gateCount={gateCount} published={published} hidden={hidden} />
-          ) : (
-            <RegionDetails selected={selected} gateCount={gateCount} published={published} hidden={hidden} />
-          )}
-          {selectedEndpointId ? (
-            <div className="action-row">
-              <button type="button" onClick={() => onEndpoint("origin", selectedEndpointId)}>Set Origin</button>
-              <button type="button" onClick={() => onEndpoint("destination", selectedEndpointId)}>Set Dest</button>
-            </div>
-          ) : null}
-        </div>
-        <div className="section-title">Zone Index</div>
-        <div className="statline">
-          {zones.map((zone) => (
-            <div key={zone} className={`stat ${zoneClass[zone]}`}>
-              <b style={{ color: "var(--zone)" }}>{stats[zone]}</b>
-              <span>{zone}</span>
-            </div>
+        <div className="inspector-tabs" role="tablist" aria-label="Inspector sections">
+          {inspectorTabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              className={activeTab === tab ? "active" : ""}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+            </button>
           ))}
         </div>
-        <div className="section-title">GateNet Links</div>
-        <div className="list"><GateList selected={selected} onSelect={onSelect} /></div>
-        <div className="section-title">Adjacent Signals</div>
-        <div className="list"><NearbyList selected={selected} onSelect={onSelect} /></div>
-        <div className="section-title">Search Results</div>
-        <SearchResults state={state} onSelect={onSelect} />
+        {activeTab === "intel" ? (
+          <div className={`readout ${zoneClass[selected.zone]}`}>
+            {selectedLocation ? (
+              <LocationDetails location={selectedLocation} selected={selected} endpoint={selectedEndpoint} />
+            ) : selectedSector ? (
+              <SectorDetails selected={selected} sector={selectedSector} gateCount={gateCount} published={published} hidden={hidden} />
+            ) : (
+              <RegionDetails selected={selected} gateCount={gateCount} published={published} hidden={hidden} />
+            )}
+            {selectedEndpointId ? (
+              <div className="action-row">
+                <button type="button" onClick={() => onEndpoint("origin", selectedEndpointId)}>Set Origin</button>
+                <button type="button" onClick={() => onEndpoint("destination", selectedEndpointId)}>Set Dest</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {activeTab === "route" ? (
+          <div className="readout">
+            <strong>{endpointText(state.origin)} -&gt; {endpointText(state.destination)}</strong>
+            <div className="muted">{profiles[state.profile].label} / {riskLabel(state)} / {state.route.length ? `${state.route.length - 1} steps` : "no route"}</div>
+            <div className="data-grid">
+              <div>Cells</div><div>{state.routeInfo.cells.toLocaleString()}</div>
+              <div>Gates</div><div>{state.routeInfo.gateJumps}</div>
+              <div>Warp</div><div>{state.routeInfo.warpJumps}</div>
+              <div>Impulse</div><div>{state.routeInfo.impulseSteps}</div>
+              <div>Credits</div><div>{state.routeInfo.credits.toLocaleString()}</div>
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "links" ? (
+          <>
+            <div className="section-title">GateNet Links</div>
+            <div className="list"><GateList selected={selected} onSelect={onSelect} /></div>
+            <div className="section-title">Adjacent Signals</div>
+            <div className="list"><NearbyList selected={selected} onSelect={onSelect} /></div>
+            <div className="section-title">Search Results</div>
+            <SearchResults state={state} onSelect={onSelect} />
+          </>
+        ) : null}
+        {activeTab === "raw" ? (
+          <>
+            <div className="section-title">Zone Index</div>
+            <div className="statline">
+              {zones.map((zone) => (
+                <div key={zone} className={`stat ${zoneClass[zone]}`}>
+                  <b style={{ color: "var(--zone)" }}>{stats[zone]}</b>
+                  <span>{zone}</span>
+                </div>
+              ))}
+            </div>
+            <div className="section-title">Raw Counts</div>
+            <div className="data-grid">
+              <div>Slug</div><div>{selected.slug}</div>
+              <div>Published</div><div>{published}</div>
+              <div>Hidden</div><div>{hidden}</div>
+              <div>Gates</div><div>{gateCount}</div>
+              <div>Bounds</div><div>x {selected.xMin.toLocaleString()}-{selected.xMax.toLocaleString()}, z {selected.zMin.toLocaleString()}-{selected.zMax.toLocaleString()}</div>
+            </div>
+          </>
+        ) : null}
       </div>
     </>
   );

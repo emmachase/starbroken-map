@@ -40,7 +40,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .topbar,
@@ -56,11 +56,11 @@ body {
 .topbar {
   z-index: 30;
   display: grid;
-  grid-template-columns: 310px minmax(300px, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: center;
-  min-height: 64px;
-  padding: 9px 14px;
+  min-height: 54px;
+  padding: 8px 14px;
   box-shadow: 0 16px 46px var(--shadow);
 }
 
@@ -291,7 +291,7 @@ select {
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(292px, 344px) minmax(0, 1fr) minmax(292px, 344px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
   padding: 12px;
@@ -385,6 +385,132 @@ select {
   min-height: 32px;
   padding: 6px 8px;
   font-size: 12px;
+}
+
+.navcom-bottom-route-island {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  gap: 7px;
+}
+
+.route-island-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.route-island-risk {
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.route-island-risk b {
+  color: var(--zone);
+  font-size: 15px;
+}
+
+.route-island-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(68px, 1fr)) minmax(248px, 1.6fr);
+  gap: 7px;
+  min-width: 0;
+}
+
+.route-island-metrics .metric {
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.route-island-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px 70px;
+  gap: 7px;
+  min-width: 0;
+}
+
+.route-island-actions select,
+.route-island-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.navcom-layer-dock-island {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 10px;
+}
+
+.layer-dock-buttons {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+
+.layer-dock-buttons button {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.navcom-vector-drawer-island,
+.navcom-signal-inspector-island {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.navcom-vector-drawer-island .panel-header,
+.navcom-signal-inspector-island .panel-header {
+  padding: 11px 12px;
+}
+
+.navcom-vector-drawer-island .panel-body,
+.navcom-signal-inspector-island .panel-body {
+  height: auto;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  overflow: auto;
+}
+
+.navcom-vector-drawer-island .row,
+.navcom-vector-drawer-island .statline,
+.navcom-signal-inspector-island .statline {
+  grid-template-columns: 1fr;
+}
+
+.navcom-vector-drawer-island .toggle-row {
+  gap: 6px;
+}
+
+.navcom-vector-drawer-island .chip,
+.navcom-vector-drawer-island .field,
+.navcom-vector-drawer-island .muted {
+  font-size: 11px;
+}
+
+.navcom-vector-drawer-island .list {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.navcom-signal-inspector-island .list {
+  max-height: 170px;
+  overflow: auto;
+}
+
+.navcom-signal-inspector-island .data-grid {
+  grid-template-columns: 78px minmax(0, 1fr);
 }
 
 .navcom-htmlsource-warning {
@@ -584,18 +710,28 @@ select {
   font-size: 11px;
 }
 
-.toast {
-  position: absolute;
-  left: 50%;
-  top: 14px;
-  transform: translateX(-50%);
+.navcom-toast-console-island {
+  display: block;
+  padding: 0;
+  pointer-events: none;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.toast-message {
+  width: 100%;
+  height: 100%;
   border: 1px solid var(--line-strong);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-  background: rgba(4, 9, 18, .88);
+  background: rgba(4, 9, 18, .9);
   color: var(--muted);
-  backdrop-filter: blur(10px);
-  padding: 8px 14px;
-  pointer-events: none;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+  text-transform: uppercase;
+  transition: opacity 180ms ease;
 }
 
 @media (max-width: 1100px) {

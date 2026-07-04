@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Command } from "cmdk";
 import {
   byCoord,
   defaultDestination,
@@ -69,47 +68,10 @@ const zoneMeaning = (zone: Zone): string => ({
 
 const endpointText = (id: string): string => endpointById.get(id)?.label ?? id;
 
-type SearchOption =
-  | { commandValue: string; id: string; type: "region"; label: string; detail: string; keywords: string[]; zone: Zone }
-  | { commandValue: string; id: string; type: "location"; label: string; detail: string; keywords: string[]; zone: Zone };
-
 const endpointGroups = {
   sectors: endpoints.filter((endpoint) => endpoint.kind === "sector"),
   locations: endpoints.filter((endpoint) => endpoint.kind === "location")
 };
-
-const searchOptions: SearchOption[] = [
-  ...regions.map((region) => ({
-    commandValue: `region:${region.coord}`,
-    id: region.coord,
-    type: "region" as const,
-    label: `${region.coord} - ${region.name}`,
-    detail: `${region.zone} / ${region.slug}`,
-    keywords: [region.coord, region.name, region.slug, region.zone, `r${region.slug.split("-r")[1]}`],
-    zone: region.zone
-  })),
-  ...locations.map((location) => ({
-    commandValue: `location-option:${location.id}`,
-    id: endpointById.has(`location:${location.id}`) ? `location:${location.id}` : location.region,
-    type: "location" as const,
-    label: location.name,
-    detail: [
-      locationKindLabel[location.kind],
-      location.sector ? `${location.region}.${location.sector}` : location.region,
-      location.hidden ? "coordinates hidden" : location.details.coordinates,
-      location.resources?.slice(0, 3).join(", ")
-    ].filter(Boolean).join(" / "),
-    keywords: [
-      location.name,
-      location.kind,
-      location.region,
-      location.zone,
-      location.sector ?? "",
-      location.resources?.join(" ") ?? ""
-    ],
-    zone: location.zone
-  }))
-];
 
 const calculateRouteState = (state: AppState): AppState => {
   const route = findPath(state);
@@ -171,10 +133,9 @@ function App() {
     showToast(`${profiles[profile].label} armed`);
   };
 
-  const selectSearchOption = (id: string): void => {
-    const option = searchOptions.find((item) => item.id === id);
-    patchState({ selected: id, search: option?.label ?? state.search });
-    if (option) showToast(`${option.type === "region" ? "Region" : "Signal"} selected: ${option.label}`);
+  const resetNavcom = (): void => {
+    setState(calculateRouteState(defaultState()));
+    showToast("NAVCOM reset");
   };
 
   return (
@@ -187,198 +148,20 @@ function App() {
             <div className="subtitle">Jump plotting / gate lanes / threat overlays</div>
           </div>
         </div>
-
-        <nav className="profiles" aria-label="Route profile">
-          {routeProfiles.map((profile) => (
-            <button key={profile} className={`profile ${state.profile === profile ? "active" : ""}`} type="button" onClick={() => setProfile(profile)}>
-              {profile}
-            </button>
-          ))}
-        </nav>
-
-        <div className="searchbox">
-          <NavSearch
-            value={state.search}
-            onValueChange={(search) => patchState({ search })}
-            onActiveChange={(selected) => patchState({ selected })}
-            onSelect={selectSearchOption}
-          />
-          <button
-            id="reset"
-            type="button"
-            onClick={() => {
-              setState(calculateRouteState(defaultState()));
-              showToast("NAVCOM reset");
-            }}
-          >
-            Reset
-          </button>
-        </div>
       </header>
 
-      <RouteStrip state={state} patchState={patchState} />
-
       <main className="shell">
-        <JumpPlotter state={state} patchState={patchState} onSelect={patchState} onEndpoint={setRouteEndpoint} />
         <section className="viewport-wrap">
-          <GalaxyMap state={state} patchState={patchState} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
-          <div className="toast" style={{ opacity: toastVisible ? 1 : 0 }}>{toast}</div>
+          <GalaxyMap state={state} patchState={patchState} toast={toast} toastVisible={toastVisible} onProfileChange={setProfile} onReset={resetNavcom} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
         </section>
-        <DetailsPanel state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
       </main>
     </>
-  );
-}
-
-function NavSearch({
-  value,
-  onValueChange,
-  onActiveChange,
-  onSelect
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  onActiveChange: (id: string) => void;
-  onSelect: (id: string) => void;
-}) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [open, setOpen] = useState(false);
-  const [activeValue, setActiveValue] = useState(searchOptions[0]?.commandValue ?? "");
-  const optionByCommandValue = useMemo(() => new Map(searchOptions.map((option) => [option.commandValue, option])), []);
-
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, []);
-
-  const choose = (id: string): void => {
-    onSelect(id);
-    setOpen(false);
-  };
-
-  const setActiveCommand = (commandValue: string): void => {
-    setActiveValue(commandValue);
-    const option = optionByCommandValue.get(commandValue);
-    if (option) onActiveChange(option.id);
-  };
-
-  return (
-    <Command
-      ref={rootRef}
-      className="nav-command"
-      label="Galaxy search"
-      loop
-      shouldFilter
-      value={activeValue}
-      onValueChange={setActiveCommand}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") setOpen(false);
-      }}
-    >
-      <Command.Input
-        value={value}
-        onValueChange={(search) => {
-          onValueChange(search);
-          setOpen(true);
-        }}
-        placeholder="Find A1, Halcyon, NULL, r63..."
-        autoComplete="off"
-        onFocus={() => setOpen(true)}
-      />
-      {open ? (
-        <Command.List className="nav-command-list">
-          <Command.Empty className="nav-command-empty">No matches.</Command.Empty>
-          <Command.Group heading="Regions">
-            {searchOptions.filter((option) => option.type === "region").map((option) => (
-              <Command.Item
-                key={option.commandValue}
-                value={option.commandValue}
-                keywords={option.keywords}
-                onClick={() => choose(option.id)}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(option.id);
-                }}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  choose(option.id);
-                }}
-                onSelect={() => choose(option.id)}
-                className="nav-command-item"
-              >
-                <b>{option.label}</b>
-                <span><span style={{ color: zoneCss[option.zone] }}>{option.zone}</span> / {option.detail}</span>
-              </Command.Item>
-            ))}
-          </Command.Group>
-          <Command.Group heading="Signals">
-            {searchOptions.filter((option) => option.type === "location").map((option) => (
-              <Command.Item
-                key={option.commandValue}
-                value={option.commandValue}
-                keywords={option.keywords}
-                onClick={() => choose(option.id)}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(option.id);
-                }}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  choose(option.id);
-                }}
-                onSelect={() => choose(option.id)}
-                className="nav-command-item"
-              >
-                <b>{option.label}</b>
-                <span><span style={{ color: zoneCss[option.zone] }}>{option.zone}</span> / {option.detail}</span>
-              </Command.Item>
-            ))}
-          </Command.Group>
-        </Command.List>
-      ) : null}
-    </Command>
   );
 }
 
 interface StateProps {
   state: AppState;
   patchState: (patch: Partial<AppState>) => void;
-}
-
-function RouteStrip({ state, patchState }: StateProps) {
-  const setLayer = (key: keyof AppState["layers"], value: boolean): void => {
-    patchState({ layers: { ...state.layers, [key]: value } });
-  };
-
-  return (
-    <section className="route-strip" aria-label="Current route">
-      <div className="route-command">
-        <div className="route-kicker">{profiles[state.profile].label}</div>
-        <div className="route-main">
-          {endpointText(state.origin)} <span>-&gt;</span> {endpointText(state.destination)}
-        </div>
-      </div>
-      <div className="route-metrics">
-        <Metric label="Steps" value={state.route.length ? String(state.route.length - 1) : "--"} />
-        <Metric label="Cells" value={state.routeInfo.cells.toLocaleString()} />
-        <Metric label="Gates" value={String(state.routeInfo.gateJumps)} />
-        <div className={`metric ${state.routeInfo.nulls ? "null" : state.routeInfo.frontier ? "frontier" : "core"}`}>
-          <b style={{ color: "var(--zone)" }}>{riskLabel(state)}</b>
-          <span>Risk</span>
-        </div>
-      </div>
-      <div className="layer-controls" aria-label="Map layers">
-        <Toggle label="Gates" checked={state.layers.gates} onChange={(checked) => setLayer("gates", checked)} />
-        <Toggle label="Threat" checked={state.layers.threat} onChange={(checked) => setLayer("threat", checked)} />
-        <Toggle label="Rifts" checked={state.layers.rifts} onChange={(checked) => setLayer("rifts", checked)} />
-        <Toggle label="Range" checked={state.layers.range} onChange={(checked) => setLayer("range", checked)} />
-        <Toggle label="Labels" checked={state.layers.labels} onChange={(checked) => setLayer("labels", checked)} />
-      </div>
-    </section>
-  );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -400,7 +183,7 @@ function Toggle({ label, checked, className = "", onChange, children }: { label:
   );
 }
 
-function JumpPlotter({ state, patchState, onEndpoint }: StateProps & { onSelect: (patch: Partial<AppState>) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void }) {
+function JumpPlotter({ state, patchState, onEndpoint, island = false }: StateProps & { onEndpoint: (kind: "origin" | "destination", coord: string) => void; island?: boolean }) {
   const setZone = (zone: Zone, checked: boolean): void => {
     const activeZones = new Set(state.activeZones);
     if (checked) activeZones.add(zone);
@@ -410,8 +193,8 @@ function JumpPlotter({ state, patchState, onEndpoint }: StateProps & { onSelect:
 
   const selectedEndpoint = selectedRouteEndpoint(state.selected);
 
-  return (
-    <aside className="panel left">
+  const content = (
+    <>
       <div className="panel-header">
         <h2>Jump Plotter</h2>
         <div className="panel-sub">{profiles[state.profile].help}</div>
@@ -477,6 +260,14 @@ function JumpPlotter({ state, patchState, onEndpoint }: StateProps & { onSelect:
           </div>
         ) : null}
       </div>
+    </>
+  );
+
+  if (island) return content;
+
+  return (
+    <aside className="panel left">
+      {content}
     </aside>
   );
 }
@@ -547,17 +338,30 @@ function RouteStepCard({ step, index, onSelect }: { step: RouteStep; index: numb
 function GalaxyMap({
   state,
   patchState,
+  toast,
+  toastVisible,
+  onProfileChange,
+  onReset,
   onSelect,
   onEndpoint
 }: {
   state: AppState;
   patchState: (patch: Partial<AppState>) => void;
+  toast: string;
+  toastVisible: boolean;
+  onProfileChange: (profile: RouteProfile) => void;
+  onReset: () => void;
   onSelect: (selected: string) => void;
   onEndpoint: (kind: "origin" | "destination", coord: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<GalaxyViewport | null>(null);
   const [topConsoleHost, setTopConsoleHost] = useState<HTMLDivElement | null>(null);
+  const [bottomRouteHost, setBottomRouteHost] = useState<HTMLDivElement | null>(null);
+  const [layerDockHost, setLayerDockHost] = useState<HTMLDivElement | null>(null);
+  const [leftVectorHost, setLeftVectorHost] = useState<HTMLDivElement | null>(null);
+  const [rightInspectorHost, setRightInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [toastHost, setToastHost] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -572,6 +376,11 @@ function GalaxyMap({
       onSetDestination: (coord) => onEndpoint("destination", coord),
       onControlHost: (id, element) => {
         if (id === "top-console") setTopConsoleHost(element);
+        if (id === "bottom-route-command") setBottomRouteHost(element);
+        if (id === "layer-dock") setLayerDockHost(element);
+        if (id === "left-vector-drawer") setLeftVectorHost(element);
+        if (id === "right-signal-inspector") setRightInspectorHost(element);
+        if (id === "toast-console") setToastHost(element);
       }
     });
     viewportRef.current = viewport;
@@ -591,6 +400,11 @@ function GalaxyMap({
       if (initialized) viewport.destroy();
       viewportRef.current = null;
       setTopConsoleHost(null);
+      setBottomRouteHost(null);
+      setLayerDockHost(null);
+      setLeftVectorHost(null);
+      setRightInspectorHost(null);
+      setToastHost(null);
     };
   }, []);
 
@@ -599,8 +413,8 @@ function GalaxyMap({
   }, [state]);
 
   useEffect(() => {
-    viewportRef.current?.requestControlPaint("top-console");
-  }, [state, topConsoleHost]);
+    viewportRef.current?.requestControlPaint();
+  }, [state, toast, toastVisible, topConsoleHost, bottomRouteHost, layerDockHost, leftVectorHost, rightInspectorHost, toastHost]);
 
   return (
     <div ref={rootRef} className="galaxy-viewport" aria-label="Starbroken galaxy map">
@@ -608,8 +422,32 @@ function GalaxyMap({
         <TopConsoleIsland state={state} onSearchChange={(search) => patchState({ search })} />,
         topConsoleHost
       ) : null}
+      {bottomRouteHost ? createPortal(
+        <BottomRouteIsland state={state} onProfileChange={onProfileChange} onReplot={() => patchState({})} onReset={onReset} />,
+        bottomRouteHost
+      ) : null}
+      {layerDockHost ? createPortal(
+        <LayerDockIsland state={state} patchState={patchState} />,
+        layerDockHost
+      ) : null}
+      {leftVectorHost ? createPortal(
+        <JumpPlotter state={state} patchState={patchState} onEndpoint={onEndpoint} island />,
+        leftVectorHost
+      ) : null}
+      {rightInspectorHost ? createPortal(
+        <DetailsPanel state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={onEndpoint} island />,
+        rightInspectorHost
+      ) : null}
+      {toastHost ? createPortal(
+        <ToastConsole message={toast} visible={toastVisible} />,
+        toastHost
+      ) : null}
     </div>
   );
+}
+
+function ToastConsole({ message, visible }: { message: string; visible: boolean }) {
+  return <div className="toast-message" style={{ opacity: visible ? 1 : 0 }}>{message}</div>;
 }
 
 function TopConsoleIsland({ state, onSearchChange }: { state: AppState; onSearchChange: (search: string) => void }) {
@@ -644,7 +482,71 @@ function TopConsoleIsland({ state, onSearchChange }: { state: AppState; onSearch
   );
 }
 
-function DetailsPanel({ state, onSelect, onEndpoint }: { state: AppState; onSelect: (selected: string) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void }) {
+function BottomRouteIsland({ state, onProfileChange, onReplot, onReset }: { state: AppState; onProfileChange: (profile: RouteProfile) => void; onReplot: () => void; onReset: () => void }) {
+  return (
+    <>
+      <div className="route-island-main">
+        <div>
+          <div className="island-kicker">Route Command</div>
+          <div className="island-title">{endpointText(state.origin)} -&gt; {endpointText(state.destination)}</div>
+        </div>
+        <div className={`route-island-risk ${state.routeInfo.nulls ? "null" : state.routeInfo.frontier ? "frontier" : "core"}`}>
+          <b>{riskLabel(state)}</b>
+          <span>Exposure</span>
+        </div>
+      </div>
+      <div className="route-island-metrics">
+        <Metric label="Steps" value={state.route.length ? String(state.route.length - 1) : "--"} />
+        <Metric label="Cells" value={state.routeInfo.cells.toLocaleString()} />
+        <Metric label="Gates" value={String(state.routeInfo.gateJumps)} />
+        <div className="route-island-actions">
+          <select value={state.profile} aria-label="Route profile" onChange={(event) => onProfileChange(event.target.value as RouteProfile)}>
+            {routeProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
+          </select>
+          <button type="button" onClick={onReplot}>Replot</button>
+          <button type="button" onClick={onReset}>Reset</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function LayerDockIsland({ state, patchState }: StateProps) {
+  const setLayer = (key: keyof AppState["layers"], value: boolean): void => {
+    patchState({ layers: { ...state.layers, [key]: value } });
+  };
+
+  const dockLayers: Array<[keyof AppState["layers"], string]> = [
+    ["gates", "Gates"],
+    ["threat", "Threat"],
+    ["rifts", "Rifts"],
+    ["range", "Range"],
+    ["labels", "Labels"]
+  ];
+
+  return (
+    <>
+      <div className="island-kicker">Layers</div>
+      <div className="layer-dock-buttons">
+        {dockLayers.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={state.layers[key] ? "active" : ""}
+            aria-pressed={state.layers[key]}
+            aria-label={label}
+            title={label}
+            onClick={() => setLayer(key, !state.layers[key])}
+          >
+            {label.slice(0, 2)}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DetailsPanel({ state, onSelect, onEndpoint, island = false }: { state: AppState; onSelect: (selected: string) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void; island?: boolean }) {
   const selectedEndpoint = endpointById.get(state.selected);
   const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
   const stats = useMemo(() => {
@@ -673,8 +575,8 @@ function DetailsPanel({ state, onSelect, onEndpoint }: { state: AppState; onSele
       : `${selected.zone} / ${selected.slug}`;
   const selectedEndpointId = selectedRouteEndpoint(state.selected);
 
-  return (
-    <aside className="panel right">
+  const content = (
+    <>
       <div className="panel-header">
         <h2>{detailTitle}</h2>
         <div className="panel-sub">{detailSub}</div>
@@ -711,6 +613,14 @@ function DetailsPanel({ state, onSelect, onEndpoint }: { state: AppState; onSele
         <div className="section-title">Search Results</div>
         <SearchResults state={state} onSelect={onSelect} />
       </div>
+    </>
+  );
+
+  if (island) return content;
+
+  return (
+    <aside className="panel right">
+      {content}
     </aside>
   );
 }

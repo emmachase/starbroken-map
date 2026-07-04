@@ -79,7 +79,7 @@ Acceptance:
 
 ## Phase 2: HTML Island Host
 
-Status: React island started. A single `top-console` canvas child is created and rendered through `HTMLSource`; React now portals live top-console content into that host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding.
+Status: React island plumbing is active. `top-console`, `bottom-route-command`, `layer-dock`, `left-vector-drawer`, `right-signal-inspector`, and `toast-console` canvas children are created and rendered through `HTMLSource`; React portals live content into each host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding. The old standalone route strip, left sidebar, right sidebar, DOM toast overlay, and interactive topbar controls have been removed from the page shell so route metrics/profile action, reset, layer toggles, vector setup, signal inspection, search text, and status feedback now live on the canvas. The remaining header is a passive identity rail.
 
 Goal: create the bridge that lets React render controls as direct canvas children and Pixi consume them through `HTMLSource`.
 
@@ -303,6 +303,13 @@ The first code slice should be intentionally narrow:
 - [x] Verify repaint, focus, click, drag-selection, cleanup, build, and tests.
 - [x] Refactor the proof into reusable per-island host plumbing.
 - [x] Replace the temporary DOM proof island with a React-rendered island.
+- [x] Add `bottom-route-command` and `layer-dock` React islands.
+- [x] Remove the old standalone route strip after its metrics and layer controls moved into canvas islands.
+- [x] Add `left-vector-drawer` and move Jump Plotter controls into the canvas.
+- [x] Add `right-signal-inspector` and move Details Panel content into the canvas.
+- [x] Add `toast-console` and move status feedback into the canvas.
+- [x] Move reset into `bottom-route-command` and reduce the topbar to passive identity.
+- [x] Re-run `npm run build` and `npm test -- --run` after each route/layer/vector/inspector/toast/topbar cleanup move.
 - [ ] Verify one screenshot during manual QA.
 
 This proves the risky technology path before moving every control.

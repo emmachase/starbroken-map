@@ -52,7 +52,13 @@ interface LodState {
 }
 
 type HitMode = "region" | "sector" | "component";
-type ControlIslandId = "top-console";
+type ControlIslandId =
+  | "top-console"
+  | "bottom-route-command"
+  | "layer-dock"
+  | "left-vector-drawer"
+  | "right-signal-inspector"
+  | "toast-console";
 type NavcomAssetId =
   | "noise-blue"
   | "noise-red"
@@ -77,6 +83,11 @@ const LOD12_TRANSITION_SPEED = 0.1;
 const REGION_FRAME_SCALE = 1.18;
 const SECTOR_FRAME_SCALE = 2.2;
 const TOP_CONSOLE_RECT: ControlIslandRect = { x: 16, y: 14, width: 520, height: 64 };
+const BOTTOM_ROUTE_RECT: ControlIslandRect = { x: 16, y: 0, width: 720, height: 74 };
+const LAYER_DOCK_RECT: ControlIslandRect = { x: 0, y: 96, width: 84, height: 236 };
+const LEFT_VECTOR_RECT: ControlIslandRect = { x: 16, y: 92, width: 332, height: 520 };
+const RIGHT_INSPECTOR_RECT: ControlIslandRect = { x: 0, y: 92, width: 332, height: 520 };
+const TOAST_RECT: ControlIslandRect = { x: 0, y: 18, width: 340, height: 42 };
 const NAVCOM_ASSETS: Array<{ alias: NavcomAssetId; src: string }> = [
   { alias: "noise-blue", src: new URL("../assets/navcom/noise-blue.svg", import.meta.url).href },
   { alias: "noise-red", src: new URL("../assets/navcom/noise-red.svg", import.meta.url).href },
@@ -237,7 +248,7 @@ export class GalaxyViewport {
       this.cursorReticleLayer
     );
     this.app.stage.addChild(this.screenRoot);
-    this.createTopConsoleIsland();
+    this.createControlIslands();
     this.resizeObserver.observe(this.root);
     this.bindCameraInput();
     this.app.ticker.add(() => this.tick());
@@ -306,22 +317,30 @@ export class GalaxyViewport {
     }
   }
 
-  private createTopConsoleIsland(): void {
+  private createControlIslands(): void {
     if (!this.htmlCanvas?.requestPaint) {
       this.showHtmlSourceWarning();
       return;
     }
 
-    const element = document.createElement("div");
-    element.className = "navcom-canvas-island navcom-top-console-island";
-    element.dataset.island = "top-console";
-    this.app.canvas.appendChild(element);
-
-    this.registerControlIsland(this.createHtmlControlIsland("top-console", element, TOP_CONSOLE_RECT));
-    this.onControlHost?.("top-console", element);
+    this.createControlIslandHost("top-console", "navcom-top-console-island", TOP_CONSOLE_RECT);
+    this.createControlIslandHost("left-vector-drawer", "navcom-vector-drawer-island", this.leftVectorRect());
+    this.createControlIslandHost("right-signal-inspector", "navcom-signal-inspector-island", this.rightInspectorRect());
+    this.createControlIslandHost("bottom-route-command", "navcom-bottom-route-island", this.bottomRouteRect());
+    this.createControlIslandHost("layer-dock", "navcom-layer-dock-island", this.layerDockRect());
+    this.createControlIslandHost("toast-console", "navcom-toast-console-island", this.toastRect());
     this.htmlCanvas.addEventListener("paint", this.handleCanvasPaint);
-    this.layoutTopConsoleIsland();
-    this.controlIslands.get("top-console")?.source.requestPaint();
+    this.layoutControlIslands();
+    this.requestControlPaint();
+  }
+
+  private createControlIslandHost(id: ControlIslandId, className: string, rect: ControlIslandRect): void {
+    const element = document.createElement("div");
+    element.className = `navcom-canvas-island ${className}`;
+    element.dataset.island = id;
+    this.app.canvas.appendChild(element);
+    this.registerControlIsland(this.createHtmlControlIsland(id, element, rect));
+    this.onControlHost?.(id, element);
   }
 
   private createHtmlControlIsland(id: ControlIslandId, element: HTMLDivElement, rect: ControlIslandRect): ControlIsland {
@@ -417,15 +436,64 @@ export class GalaxyViewport {
   private resize(): void {
     this.computeLayout();
     this.drawBackground();
-    this.layoutTopConsoleIsland();
+    this.layoutControlIslands();
     this.renderStatic();
     this.fitMap(false);
   }
 
-  private layoutTopConsoleIsland(): void {
-    const island = this.controlIslands.get("top-console");
-    if (!island) return;
-    this.layoutControlIsland(island);
+  private layoutControlIslands(): void {
+    const bottomRoute = this.controlIslands.get("bottom-route-command");
+    const layerDock = this.controlIslands.get("layer-dock");
+    const leftVector = this.controlIslands.get("left-vector-drawer");
+    const rightInspector = this.controlIslands.get("right-signal-inspector");
+    const toast = this.controlIslands.get("toast-console");
+    if (bottomRoute) bottomRoute.rect = this.bottomRouteRect();
+    if (layerDock) layerDock.rect = this.layerDockRect();
+    if (leftVector) leftVector.rect = this.leftVectorRect();
+    if (rightInspector) rightInspector.rect = this.rightInspectorRect();
+    if (toast) toast.rect = this.toastRect();
+    for (const island of this.controlIslands.values()) this.layoutControlIsland(island);
+  }
+
+  private bottomRouteRect(): ControlIslandRect {
+    const width = Math.min(BOTTOM_ROUTE_RECT.width, Math.max(360, this.root.clientWidth - 32));
+    return {
+      ...BOTTOM_ROUTE_RECT,
+      width,
+      y: Math.max(86, this.root.clientHeight - BOTTOM_ROUTE_RECT.height - 16)
+    };
+  }
+
+  private layerDockRect(): ControlIslandRect {
+    return {
+      ...LAYER_DOCK_RECT,
+      x: Math.max(16, this.root.clientWidth - LAYER_DOCK_RECT.width - 16),
+      y: Math.min(Math.max(96, this.root.clientHeight * 0.28), Math.max(96, this.root.clientHeight - LAYER_DOCK_RECT.height - 100))
+    };
+  }
+
+  private leftVectorRect(): ControlIslandRect {
+    const availableHeight = this.root.clientHeight - LEFT_VECTOR_RECT.y - BOTTOM_ROUTE_RECT.height - 34;
+    return {
+      ...LEFT_VECTOR_RECT,
+      height: Math.max(300, Math.min(LEFT_VECTOR_RECT.height, availableHeight))
+    };
+  }
+
+  private rightInspectorRect(): ControlIslandRect {
+    const availableHeight = this.root.clientHeight - RIGHT_INSPECTOR_RECT.y - BOTTOM_ROUTE_RECT.height - 34;
+    return {
+      ...RIGHT_INSPECTOR_RECT,
+      x: Math.max(364, this.root.clientWidth - RIGHT_INSPECTOR_RECT.width - LAYER_DOCK_RECT.width - 28),
+      height: Math.max(300, Math.min(RIGHT_INSPECTOR_RECT.height, availableHeight))
+    };
+  }
+
+  private toastRect(): ControlIslandRect {
+    return {
+      ...TOAST_RECT,
+      x: Math.max(16, (this.root.clientWidth - TOAST_RECT.width) / 2)
+    };
   }
 
   private layoutControlIsland(island: ControlIsland): void {

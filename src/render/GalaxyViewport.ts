@@ -389,10 +389,11 @@ export class GalaxyViewport {
 
   requestControlPaint(id?: ControlIslandId): void {
     if (id) {
-      this.controlIslands.get(id)?.source.requestPaint();
+      const island = this.controlIslands.get(id);
+      if (island) this.requestIslandPaint(island);
       return;
     }
-    for (const island of this.controlIslands.values()) island.source.requestPaint();
+    for (const island of this.controlIslands.values()) this.requestIslandPaint(island);
   }
 
   setControlIslandExpanded(id: ControlIslandId | DrawerId, expanded: boolean, onComplete?: () => void): void {
@@ -530,7 +531,7 @@ export class GalaxyViewport {
     const source = new HTMLSource({
       resource: element,
       canvas: this.htmlCanvas!,
-      autoRequestPaint: true
+      autoRequestPaint: false
     });
     const sprite = Sprite.from(source);
     const usesStaticChrome = !this.isDrawerSurface(id);
@@ -566,6 +567,11 @@ export class GalaxyViewport {
 
   private registerControlIsland(island: ControlIsland): void {
     this.controlIslands.set(island.id, island);
+  }
+
+  private requestIslandPaint(island: ControlIsland): void {
+    if (!island.source.canvas || island.element.parentElement !== this.htmlCanvas) return;
+    island.source.requestPaint();
   }
 
   private destroyControlIslands(): void {
@@ -798,8 +804,6 @@ export class GalaxyViewport {
     island.element.style.width = `${island.rect.width}px`;
     island.element.style.height = `${island.rect.height}px`;
     island.element.style.transformOrigin = "0 0";
-    const sourceSizeChanged = island.sourceWidth !== island.rect.width || island.sourceHeight !== island.rect.height;
-    if (sourceSizeChanged) this.recreateControlIslandSource(island);
     island.sprite.position.set(island.rect.x, island.rect.y);
     island.sprite.scale.set(1);
     const targetVisible = this.isControlIslandVisible(island.id);
@@ -818,7 +822,7 @@ export class GalaxyViewport {
     island.sourceWidth = island.rect.width;
     island.sourceHeight = island.rect.height;
     this.updateStaticIslandChrome(island);
-    island.source.requestPaint();
+    this.requestIslandPaint(island);
   }
 
   private setDrawerExpanded(id: DrawerId, expanded: boolean, onComplete?: () => void): void {
@@ -998,12 +1002,6 @@ export class GalaxyViewport {
     return id === "left-vector-drawer" ? "left-vector-panel" : "right-signal-panel";
   }
 
-  private drawerIdForPanel(id: ControlIslandId): DrawerId | null {
-    if (id === "left-vector-panel") return "left-vector-drawer";
-    if (id === "right-signal-panel") return "right-signal-inspector";
-    return null;
-  }
-
   private lerpControlRect(from: ControlIslandRect, to: ControlIslandRect, amount: number): ControlIslandRect {
     return {
       x: from.x + (to.x - from.x) * amount,
@@ -1015,35 +1013,6 @@ export class GalaxyViewport {
 
   private easeInOutCubic(amount: number): number {
     return amount < 0.5 ? 4 * amount ** 3 : 1 - (-2 * amount + 2) ** 3 / 2;
-  }
-
-  private recreateControlIslandSource(island: ControlIsland): void {
-    const childIndex = this.htmlControlLayer.children.indexOf(island.sprite);
-    if (island.transformCorrectionFrame) {
-      window.cancelAnimationFrame(island.transformCorrectionFrame);
-      island.transformCorrectionFrame = 0;
-    }
-
-    this.htmlControlLayer.removeChild(island.sprite);
-    island.sprite.destroy({ texture: true, textureSource: false });
-    island.source.destroy();
-
-    island.source = new HTMLSource({
-      resource: island.element,
-      canvas: this.htmlCanvas!,
-      autoRequestPaint: true
-    });
-    island.sprite = Sprite.from(island.source);
-    island.sprite.alpha = island.visualAlpha;
-    const drawerId = this.drawerIdForPanel(island.id);
-    if (drawerId) island.sprite.mask = this.drawerTransitions.get(drawerId)?.panelMask ?? null;
-    else if (island.contentMask) island.sprite.mask = island.contentMask;
-    island.sourceWidth = island.rect.width;
-    island.sourceHeight = island.rect.height;
-    island.transformCorrection = { x: 0, y: 0 };
-
-    const nextIndex = childIndex < 0 ? this.htmlControlLayer.children.length : Math.min(childIndex, this.htmlControlLayer.children.length);
-    this.htmlControlLayer.addChildAt(island.sprite, nextIndex);
   }
 
   private layoutDisplayMaterial(): void {

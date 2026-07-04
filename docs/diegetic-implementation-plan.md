@@ -25,7 +25,7 @@ This plan is intentionally implementation-facing. Strategy lives in:
 - Move layout in stages: first make control islands, then compose them in Pixi, then collapse and reorganize UX.
 - Keep HTML islands coarse: one source per major control region, not one source per button.
 - Animate map, alert, glass, route, and sensor effects in Pixi.
-- Request HTML repaints only when React state or controlled input text changes.
+- Request HTML repaints on React state changes and control island size changes. Drawer transitions use separate compact-tab and expanded-panel `HTMLSource` surfaces, while Pixi owns chrome growth and crossfade timing.
 - Apply stripe falloff masks wherever alert hatches fade into open display space.
 
 ## Phase 0: Harness And Guardrails
@@ -78,7 +78,7 @@ Acceptance:
 
 ## Phase 2: HTML Island Host
 
-Status: React island plumbing is active. `top-console`, `bottom-route-command`, `layer-dock`, `left-vector-drawer`, `right-signal-inspector`, and `toast-console` canvas children are created and rendered through `HTMLSource`; React portals live content into each host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding. The old standalone route strip, left sidebar, right sidebar, DOM toast overlay, and topbar have been removed from the page shell so route metrics/profile action, reset, layer toggles, vector setup, signal inspection, search text, and status feedback now live on the canvas. Canvas-hosted command search has been restored with preview and commit behavior. The route list has moved into a bottom command timeline, and inspector raw/list content is now behind tabs.
+Status: React island plumbing is active. `top-console`, `bottom-route-command`, `layer-dock`, split vector/signal tab+panel surfaces, and `toast-console` canvas children are created and rendered through `HTMLSource`; React portals live content into each host. Hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding. The old standalone route strip, left sidebar, right sidebar, DOM toast overlay, and topbar have been removed from the page shell so route metrics/profile action, reset, layer toggles, vector setup, signal inspection, search text, and status feedback now live on the canvas. Canvas-hosted command search has been restored with preview and commit behavior. The route list has moved into a bottom command timeline, and inspector raw/list content is now behind tabs.
 
 Goal: create the bridge that lets React render controls as direct canvas children and Pixi consume them through `HTMLSource`.
 
@@ -95,8 +95,10 @@ Tasks:
 - Add direct canvas child elements for:
   - `top-console`
   - `bottom-route-command`
-  - `left-vector-drawer`
-  - `right-signal-inspector`
+  - `left-vector-tab`
+  - `left-vector-panel`
+  - `right-signal-tab`
+  - `right-signal-panel`
   - `layer-dock`
   - `toast-console`
 - Ensure the canvas has `layoutsubtree`.
@@ -139,6 +141,8 @@ Acceptance:
 
 ## Phase 4: Diegetic Layout Pass
 
+Status: in progress. Vector and signal inspector islands now open on hover from compact edge tabs, with pin buttons to keep a panel open after pointer leave. Drawer transitions now use two stable `HTMLSource` surfaces per drawer: one compact tab and one expanded panel. Pixi crossfades the sources and draws the animated notched chrome so borders are not chopped by masks.
+
 Goal: implement the UX strategy while keeping every existing capability reachable.
 
 Tasks:
@@ -149,6 +153,9 @@ Tasks:
 - Move layer controls into a compact icon-first map dock.
 - Collapse vector setup into the left drawer by default.
 - Collapse signal inspector into a contextual right drawer by default.
+- Open collapsed vector and signal drawers on hover, not click.
+- Add a pin affordance inside each expanded drawer for persistent open state.
+- Keep compact tab and expanded panel HTML mounted at stable source sizes while Pixi crossfades them and animates the outer chrome between footprints.
 - Convert the persistent route list into an expandable bottom timeline.
 - Hide raw metadata by default behind inspector sections or tabs:
   - `Intel`
@@ -192,6 +199,8 @@ Acceptance:
 
 ## Phase 6: Global Display Effects
 
+Status: in progress. Low-alpha blue noise, glass smudge, red alert noise, edge vignette, chromatic boundary hints, and a subtle center bloom pass are implemented. Rectangular reflection bands remain intentionally removed.
+
 Goal: add the full-display material pass without muddying gameplay information.
 
 Tasks:
@@ -199,6 +208,7 @@ Tasks:
 - Add blue noise at low opacity.
 - Add low-alpha glass smudge texture for normal state.
 - Use subtle edge vignette only; do not add rectangular global reflection bands.
+- Add subtle full-display bloom that reads as display glass glow rather than a rectangular reflection.
 - Add optional chromatic edge hints around the display boundary.
 - Add red noise and alert interference only during warning states.
 - Add brief sync-loss or jitter states for failed route and NULL exposure.
@@ -211,6 +221,8 @@ Acceptance:
 
 ## Phase 7: Route And Sensor Feel
 
+Status: in progress. Route sparks, route commit flash, gate pulse, hostile-zone shimmer, component-only selected reticle, and a fixed screen-space soft range ring are implemented. Hover reticles were removed from the current pass because they made sectors/regions read like targetable components.
+
 Goal: improve game feel around route solving, selection, hover, and map feedback.
 
 Tasks:
@@ -218,10 +230,11 @@ Tasks:
 - Replace route packet circles with `spark-dot.svg` sprites or a small pooled particle system.
 - Add route commit flash and recalculation ghosting.
 - Add gate pulse effects at gate jumps.
-- Add hover reticles from `reticle-ping.svg`.
-- Add soft range rings from `ring-soft.svg`.
+- Add selected-component reticles from `reticle-ping.svg` for planets, stations, and other location endpoints only.
+- Add fixed screen-space soft range rings from `ring-soft.svg` for selected components only.
 - Add selection brackets for selected regions, sectors, and locations.
 - Add local hostile-zone shimmer for NULL/Frontier zones when threat/rifts are active.
+- Slow ambient and route animation cadence so the display feels heavy and readable.
 
 Acceptance:
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
@@ -236,64 +236,110 @@ function Toggle({ label, checked, className = "", onChange, children }: { label:
   );
 }
 
-function VectorDrawerIsland({
-  state,
-  patchState,
-  open,
-  onOpenChange,
-  onEndpoint
-}: StateProps & {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+function VectorDrawerTabIsland({
+  onHoverChange
+}: {
+  onHoverChange: (hovered: boolean) => void;
 }) {
-  if (!open) {
-    return (
-      <button type="button" className="drawer-tab vertical" aria-label="Open vector setup" title="Vector setup" onClick={() => onOpenChange(true)}>
-        <span>Vector</span>
-      </button>
-    );
-  }
-
   return (
-    <>
-      <button type="button" className="drawer-close" aria-label="Collapse vector setup" title="Collapse vector setup" onClick={() => onOpenChange(false)}>Close</button>
-      <JumpPlotter state={state} patchState={patchState} onEndpoint={onEndpoint} island />
-    </>
+    <button
+      type="button"
+      className="drawer-tab vertical"
+      aria-label="Open vector setup"
+      title="Vector setup"
+      onPointerEnter={() => onHoverChange(true)}
+      onFocus={() => onHoverChange(true)}
+    >
+      <span>Vector</span>
+    </button>
   );
 }
 
-function SignalInspectorIsland({
+function VectorDrawerPanelIsland({
   state,
-  open,
-  onOpenChange,
-  onSelect,
+  patchState,
+  pinned,
+  onHoverChange,
+  onPinnedChange,
   onEndpoint
+}: StateProps & {
+  pinned: boolean;
+  onHoverChange: (hovered: boolean) => void;
+  onPinnedChange: (pinned: boolean) => void;
+  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+}) {
+  return (
+    <div className="drawer-shell" onPointerEnter={() => onHoverChange(true)} onPointerLeave={() => onHoverChange(false)}>
+      <button
+        type="button"
+        className={`drawer-pin ${pinned ? "active" : ""}`}
+        aria-label={pinned ? "Unpin vector setup" : "Pin vector setup"}
+        aria-pressed={pinned}
+        title={pinned ? "Unpin vector setup" : "Pin vector setup"}
+        onClick={() => onPinnedChange(!pinned)}
+      >
+        Pin
+      </button>
+      <JumpPlotter state={state} patchState={patchState} onEndpoint={onEndpoint} island />
+    </div>
+  );
+}
+
+function SignalInspectorTabIsland({
+  state,
+  onHoverChange
 }: {
   state: AppState;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (selected: string) => void;
-  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+  onHoverChange: (hovered: boolean) => void;
 }) {
   const selectedEndpoint = endpointById.get(state.selected);
   const selected = selectedEndpoint ? byCoord.get(selectedEndpoint.region) : byCoord.get(state.selected);
   const label = selectedEndpoint?.label ?? (selected ? `${selected.coord} - ${selected.name}` : state.selected);
   const zone = selected?.zone ?? "CORE";
 
-  if (!open) {
-    return (
-      <button type="button" className={`drawer-tab vertical ${zoneClass[zone]}`} aria-label="Open signal inspector" title={label} onClick={() => onOpenChange(true)}>
-        <span>Intel</span>
-      </button>
-    );
-  }
-
   return (
-    <>
-      <button type="button" className="drawer-close" aria-label="Collapse signal inspector" title="Collapse signal inspector" onClick={() => onOpenChange(false)}>Close</button>
+    <button
+      type="button"
+      className={`drawer-tab vertical ${zoneClass[zone]}`}
+      aria-label="Open signal inspector"
+      title={label}
+      onPointerEnter={() => onHoverChange(true)}
+      onFocus={() => onHoverChange(true)}
+    >
+      <span>Intel</span>
+    </button>
+  );
+}
+
+function SignalInspectorPanelIsland({
+  state,
+  pinned,
+  onHoverChange,
+  onPinnedChange,
+  onSelect,
+  onEndpoint
+}: {
+  state: AppState;
+  pinned: boolean;
+  onHoverChange: (hovered: boolean) => void;
+  onPinnedChange: (pinned: boolean) => void;
+  onSelect: (selected: string) => void;
+  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+}) {
+  return (
+    <div className="drawer-shell" onPointerEnter={() => onHoverChange(true)} onPointerLeave={() => onHoverChange(false)}>
+      <button
+        type="button"
+        className={`drawer-pin ${pinned ? "active" : ""}`}
+        aria-label={pinned ? "Unpin signal inspector" : "Pin signal inspector"}
+        aria-pressed={pinned}
+        title={pinned ? "Unpin signal inspector" : "Pin signal inspector"}
+        onClick={() => onPinnedChange(!pinned)}
+      >
+        Pin
+      </button>
       <DetailsPanel state={state} onSelect={onSelect} onEndpoint={onEndpoint} island />
-    </>
+    </div>
   );
 }
 
@@ -438,16 +484,62 @@ function GalaxyMap({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<GalaxyViewport | null>(null);
+  const vectorHoverCloseTimer = useRef<number | null>(null);
+  const inspectorHoverCloseTimer = useRef<number | null>(null);
   const [topConsoleHost, setTopConsoleHost] = useState<HTMLDivElement | null>(null);
   const [searchPopoverHost, setSearchPopoverHost] = useState<HTMLDivElement | null>(null);
   const [bottomRouteHost, setBottomRouteHost] = useState<HTMLDivElement | null>(null);
   const [layerDockHost, setLayerDockHost] = useState<HTMLDivElement | null>(null);
-  const [leftVectorHost, setLeftVectorHost] = useState<HTMLDivElement | null>(null);
-  const [rightInspectorHost, setRightInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [leftVectorTabHost, setLeftVectorTabHost] = useState<HTMLDivElement | null>(null);
+  const [leftVectorPanelHost, setLeftVectorPanelHost] = useState<HTMLDivElement | null>(null);
+  const [rightInspectorTabHost, setRightInspectorTabHost] = useState<HTMLDivElement | null>(null);
+  const [rightInspectorPanelHost, setRightInspectorPanelHost] = useState<HTMLDivElement | null>(null);
   const [toastHost, setToastHost] = useState<HTMLDivElement | null>(null);
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
-  const [vectorDrawerOpen, setVectorDrawerOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [vectorDrawerHovered, setVectorDrawerHovered] = useState(false);
+  const [vectorDrawerPinned, setVectorDrawerPinned] = useState(false);
+  const [inspectorHovered, setInspectorHovered] = useState(false);
+  const [inspectorPinned, setInspectorPinned] = useState(false);
+  const vectorDrawerRequestedOpen = vectorDrawerHovered || vectorDrawerPinned;
+  const inspectorRequestedOpen = inspectorHovered || inspectorPinned;
+
+  const setVectorDrawerHover = (hovered: boolean): void => {
+    if (vectorHoverCloseTimer.current !== null) {
+      window.clearTimeout(vectorHoverCloseTimer.current);
+      vectorHoverCloseTimer.current = null;
+    }
+    if (hovered) {
+      setVectorDrawerHovered(true);
+      return;
+    }
+    vectorHoverCloseTimer.current = window.setTimeout(() => {
+      vectorHoverCloseTimer.current = null;
+      setVectorDrawerHovered(false);
+    }, 180);
+  };
+
+  const setInspectorHover = (hovered: boolean): void => {
+    if (inspectorHoverCloseTimer.current !== null) {
+      window.clearTimeout(inspectorHoverCloseTimer.current);
+      inspectorHoverCloseTimer.current = null;
+    }
+    if (hovered) {
+      setInspectorHovered(true);
+      return;
+    }
+    inspectorHoverCloseTimer.current = window.setTimeout(() => {
+      inspectorHoverCloseTimer.current = null;
+      setInspectorHovered(false);
+    }, 180);
+  };
+
+  const setVectorDrawerPin = (pinned: boolean): void => {
+    setVectorDrawerPinned(pinned);
+  };
+
+  const setInspectorPin = (pinned: boolean): void => {
+    setInspectorPinned(pinned);
+  };
 
   useEffect(() => {
     const root = rootRef.current;
@@ -465,8 +557,10 @@ function GalaxyMap({
         if (id === "search-popover") setSearchPopoverHost(element);
         if (id === "bottom-route-command") setBottomRouteHost(element);
         if (id === "layer-dock") setLayerDockHost(element);
-        if (id === "left-vector-drawer") setLeftVectorHost(element);
-        if (id === "right-signal-inspector") setRightInspectorHost(element);
+        if (id === "left-vector-tab") setLeftVectorTabHost(element);
+        if (id === "left-vector-panel") setLeftVectorPanelHost(element);
+        if (id === "right-signal-tab") setRightInspectorTabHost(element);
+        if (id === "right-signal-panel") setRightInspectorPanelHost(element);
         if (id === "toast-console") setToastHost(element);
       }
     });
@@ -484,14 +578,18 @@ function GalaxyMap({
 
     return () => {
       disposed = true;
+      if (vectorHoverCloseTimer.current !== null) window.clearTimeout(vectorHoverCloseTimer.current);
+      if (inspectorHoverCloseTimer.current !== null) window.clearTimeout(inspectorHoverCloseTimer.current);
       if (initialized) viewport.destroy();
       viewportRef.current = null;
       setTopConsoleHost(null);
       setSearchPopoverHost(null);
       setBottomRouteHost(null);
       setLayerDockHost(null);
-      setLeftVectorHost(null);
-      setRightInspectorHost(null);
+      setLeftVectorTabHost(null);
+      setLeftVectorPanelHost(null);
+      setRightInspectorTabHost(null);
+      setRightInspectorPanelHost(null);
       setToastHost(null);
     };
   }, []);
@@ -507,28 +605,38 @@ function GalaxyMap({
     toast,
     toastVisible,
     searchPopoverOpen,
-    vectorDrawerOpen,
-    inspectorOpen,
+    vectorDrawerRequestedOpen,
+    vectorDrawerPinned,
+    inspectorRequestedOpen,
+    inspectorPinned,
     topConsoleHost,
     searchPopoverHost,
     bottomRouteHost,
     layerDockHost,
-    leftVectorHost,
-    rightInspectorHost,
+    leftVectorTabHost,
+    leftVectorPanelHost,
+    rightInspectorTabHost,
+    rightInspectorPanelHost,
     toastHost
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     viewportRef.current?.setControlIslandExpanded("search-popover", searchPopoverOpen);
   }, [searchPopoverOpen, searchPopoverHost]);
 
-  useEffect(() => {
-    viewportRef.current?.setControlIslandExpanded("left-vector-drawer", vectorDrawerOpen);
-  }, [vectorDrawerOpen, leftVectorHost]);
+  useLayoutEffect(() => {
+    viewportRef.current?.setControlIslandExpanded("toast-console", toastVisible);
+  }, [toastVisible, toastHost]);
 
-  useEffect(() => {
-    viewportRef.current?.setControlIslandExpanded("right-signal-inspector", inspectorOpen);
-  }, [inspectorOpen, rightInspectorHost]);
+  useLayoutEffect(() => {
+    if (!leftVectorTabHost || !leftVectorPanelHost) return;
+    viewportRef.current?.setControlIslandExpanded("left-vector-drawer", vectorDrawerRequestedOpen);
+  }, [vectorDrawerRequestedOpen, leftVectorTabHost, leftVectorPanelHost]);
+
+  useLayoutEffect(() => {
+    if (!rightInspectorTabHost || !rightInspectorPanelHost) return;
+    viewportRef.current?.setControlIslandExpanded("right-signal-inspector", inspectorRequestedOpen);
+  }, [inspectorRequestedOpen, rightInspectorTabHost, rightInspectorPanelHost]);
 
   return (
     <div ref={rootRef} className="galaxy-viewport" aria-label="Starbroken galaxy map">
@@ -557,36 +665,46 @@ function GalaxyMap({
         <LayerDockIsland state={state} patchState={patchState} />,
         layerDockHost
       ) : null}
-      {leftVectorHost ? createPortal(
-        <VectorDrawerIsland
+      {leftVectorTabHost ? createPortal(
+        <VectorDrawerTabIsland onHoverChange={setVectorDrawerHover} />,
+        leftVectorTabHost
+      ) : null}
+      {leftVectorPanelHost ? createPortal(
+        <VectorDrawerPanelIsland
           state={state}
           patchState={patchState}
-          open={vectorDrawerOpen}
-          onOpenChange={setVectorDrawerOpen}
+          pinned={vectorDrawerPinned}
+          onHoverChange={setVectorDrawerHover}
+          onPinnedChange={setVectorDrawerPin}
           onEndpoint={onEndpoint}
         />,
-        leftVectorHost
+        leftVectorPanelHost
       ) : null}
-      {rightInspectorHost ? createPortal(
-        <SignalInspectorIsland
+      {rightInspectorTabHost ? createPortal(
+        <SignalInspectorTabIsland state={state} onHoverChange={setInspectorHover} />,
+        rightInspectorTabHost
+      ) : null}
+      {rightInspectorPanelHost ? createPortal(
+        <SignalInspectorPanelIsland
           state={state}
-          open={inspectorOpen}
-          onOpenChange={setInspectorOpen}
+          pinned={inspectorPinned}
+          onHoverChange={setInspectorHover}
+          onPinnedChange={setInspectorPin}
           onSelect={(selected) => patchState({ selected })}
           onEndpoint={onEndpoint}
         />,
-        rightInspectorHost
+        rightInspectorPanelHost
       ) : null}
       {toastHost ? createPortal(
-        <ToastConsole message={toast} visible={toastVisible} />,
+        <ToastConsole message={toast} />,
         toastHost
       ) : null}
     </div>
   );
 }
 
-function ToastConsole({ message, visible }: { message: string; visible: boolean }) {
-  return <div className="toast-message" style={{ opacity: visible ? 1 : 0 }}>{message}</div>;
+function ToastConsole({ message }: { message: string }) {
+  return <div className="toast-message">{message}</div>;
 }
 
 function TopConsoleIsland({

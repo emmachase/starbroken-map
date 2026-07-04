@@ -12,6 +12,7 @@ interface GalaxyViewportOptions {
   onSetOrigin: (coord: string) => void;
   onSetDestination: (coord: string) => void;
   onControlHost?: (id: ControlIslandId, element: HTMLDivElement | null) => void;
+  onControlTransitionEnd?: (id: DrawerId, expanded: boolean) => void;
 }
 
 interface Layout {
@@ -57,9 +58,12 @@ type ControlIslandId =
   | "search-popover"
   | "bottom-route-command"
   | "layer-dock"
-  | "left-vector-drawer"
-  | "right-signal-inspector"
+  | "left-vector-tab"
+  | "left-vector-panel"
+  | "right-signal-tab"
+  | "right-signal-panel"
   | "toast-console";
+type DrawerId = "left-vector-drawer" | "right-signal-inspector";
 type NavcomAssetId =
   | "noise-blue"
   | "noise-red"
@@ -75,6 +79,9 @@ const COMPONENT_LOD_THRESHOLD = 3.8;
 const LOD12_TRANSITION_SPEED = 0.1;
 const REGION_FRAME_SCALE = 1.18;
 const SECTOR_FRAME_SCALE = 2.2;
+const CONTROL_REVEAL_STEP = 0.03;
+const CONTROL_REVEAL_MAX_ALPHA = 0.92;
+const CONTROL_FADE_STEP = 0.055;
 const TOP_CONSOLE_RECT: ControlIslandRect = { x: 16, y: 14, width: 560, height: 186 };
 const SEARCH_POPOVER_RECT: ControlIslandRect = { x: 0, y: 84, width: 304, height: 156 };
 const BOTTOM_ROUTE_RECT: ControlIslandRect = { x: 16, y: 0, width: 820, height: 138 };
@@ -99,14 +106,27 @@ interface ControlIslandRect {
   height: number;
 }
 
+interface DrawerTransition {
+  progress: number;
+  target: number;
+  background: Graphics;
+  border: Graphics;
+  panelMask: Graphics;
+}
+
 interface ControlIsland {
   id: ControlIslandId;
   element: HTMLDivElement;
   rect: ControlIslandRect;
   source: HTMLSource;
   sprite: Sprite;
+  background: Graphics | null;
+  border: Graphics | null;
+  contentMask: Graphics | null;
   sourceWidth: number;
   sourceHeight: number;
+  visualAlpha: number;
+  targetAlpha: number;
   transformCorrection: { x: number; y: number };
   transformCorrectionFrame: number;
 }
@@ -128,6 +148,7 @@ export class GalaxyViewport {
   private readonly onSetOrigin: (coord: string) => void;
   private readonly onSetDestination: (coord: string) => void;
   private readonly onControlHost?: (id: ControlIslandId, element: HTMLDivElement | null) => void;
+  private readonly onControlTransitionEnd?: (id: DrawerId, expanded: boolean) => void;
   private readonly app = new Application();
   private readonly screenRoot = new Container();
   private readonly starfieldLayer = new Container();
@@ -164,10 +185,12 @@ export class GalaxyViewport {
   private readonly navcomTextures = new Map<NavcomAssetId, Texture>();
   private readonly controlIslands = new Map<ControlIslandId, ControlIsland>();
   private readonly expandedControlIslands = new Set<ControlIslandId>();
+  private readonly expandedDrawers = new Set<DrawerId>();
+  private readonly drawerTransitions = new Map<DrawerId, DrawerTransition>();
   private readonly routeSparkSprites: Sprite[] = [];
   private selectedReticleSprite: Sprite | null = null;
-  private hoverReticleSprite: Sprite | null = null;
   private rangeRingSprite: Sprite | null = null;
+  private globalBloomSprite: Sprite | null = null;
   private blueNoiseSprite: TilingSprite | null = null;
   private redNoiseSprite: TilingSprite | null = null;
   private scanlineSprite: TilingSprite | null = null;
@@ -193,6 +216,7 @@ export class GalaxyViewport {
   private renderedSelected = "";
   private lod12Blend = 0;
   private routeCommitFlash = 0;
+  private controlIslandAnimating = false;
 
   constructor(options: GalaxyViewportOptions) {
     this.root = options.root;
@@ -200,6 +224,7 @@ export class GalaxyViewport {
     this.onSetOrigin = options.onSetOrigin;
     this.onSetDestination = options.onSetDestination;
     this.onControlHost = options.onControlHost;
+    this.onControlTransitionEnd = options.onControlTransitionEnd;
     this.resizeObserver = new ResizeObserver(() => this.resize());
   }
 
@@ -276,19 +301,20 @@ export class GalaxyViewport {
     for (const island of this.controlIslands.values()) island.source.requestPaint();
   }
 
-  setControlIslandExpanded(id: ControlIslandId, expanded: boolean): void {
+  setControlIslandExpanded(id: ControlIslandId | DrawerId, expanded: boolean, onComplete?: () => void): void {
+    if (this.isDrawerId(id)) {
+      this.setDrawerExpanded(id, expanded, onComplete);
+      return;
+    }
+
     const had = this.expandedControlIslands.has(id);
     if (had === expanded) return;
     if (expanded) this.expandedControlIslands.add(id);
     else this.expandedControlIslands.delete(id);
     this.layoutControlIslands();
     this.requestControlPaint(id);
-    window.requestAnimationFrame(() => {
-      const island = this.controlIslands.get(id);
-      if (island) this.recreateControlIslandSource(island);
-      this.layoutControlIslands();
-      this.requestControlPaint(id);
-    });
+    if (this.isFadingControlIsland(id)) this.controlIslandAnimating = true;
+    onComplete?.();
   }
 
   focusSelected(immediate = false): void {
@@ -341,6 +367,7 @@ export class GalaxyViewport {
     const redNoise = this.navcomTextures.get("noise-red");
     const scanlines = this.navcomTextures.get("scanline-mask");
     const smudge = this.navcomTextures.get("glass-smudge");
+    const bloom = this.navcomTextures.get("ring-soft");
 
     if (blueNoise) {
       this.blueNoiseSprite = new TilingSprite({ texture: blueNoise, width: 1, height: 1 });
@@ -364,6 +391,15 @@ export class GalaxyViewport {
       this.glassOverlayLayer.addChild(this.glassSmudgeSprite);
     }
 
+    if (bloom) {
+      this.globalBloomSprite = new Sprite({ texture: bloom });
+      this.globalBloomSprite.anchor.set(0.5);
+      this.globalBloomSprite.alpha = 0.055;
+      this.globalBloomSprite.blendMode = "screen";
+      this.globalBloomSprite.tint = 0x71d5ff;
+      this.glassOverlayLayer.addChild(this.globalBloomSprite);
+    }
+
     if (redNoise) {
       this.redNoiseSprite = new TilingSprite({ texture: redNoise, width: 1, height: 1 });
       this.redNoiseSprite.alpha = 0;
@@ -380,8 +416,12 @@ export class GalaxyViewport {
 
     this.createControlIslandHost("top-console", "navcom-top-console-island", TOP_CONSOLE_RECT);
     this.createControlIslandHost("search-popover", "navcom-search-popover-island", this.searchPopoverRect());
-    this.createControlIslandHost("left-vector-drawer", "navcom-vector-drawer-island", this.leftVectorRect());
-    this.createControlIslandHost("right-signal-inspector", "navcom-signal-inspector-island", this.rightInspectorRect());
+    this.createControlIslandHost("left-vector-tab", "navcom-vector-drawer-tab-island", this.leftVectorTabRect());
+    this.createControlIslandHost("left-vector-panel", "navcom-vector-drawer-panel-island", this.leftVectorPanelRect());
+    this.createControlIslandHost("right-signal-tab", "navcom-signal-inspector-tab-island", this.rightInspectorTabRect());
+    this.createControlIslandHost("right-signal-panel", "navcom-signal-inspector-panel-island", this.rightInspectorPanelRect());
+    this.createDrawerChrome("left-vector-drawer");
+    this.createDrawerChrome("right-signal-inspector");
     this.createControlIslandHost("bottom-route-command", "navcom-bottom-route-island", this.bottomRouteRect());
     this.createControlIslandHost("layer-dock", "navcom-layer-dock-island", this.layerDockRect());
     this.createControlIslandHost("toast-console", "navcom-toast-console-island", this.toastRect());
@@ -409,16 +449,32 @@ export class GalaxyViewport {
       autoRequestPaint: true
     });
     const sprite = Sprite.from(source);
-    sprite.alpha = 0.92;
+    const usesStaticChrome = !this.isDrawerSurface(id);
+    const background = usesStaticChrome ? new Graphics() : null;
+    const border = usesStaticChrome ? new Graphics() : null;
+    const contentMask = usesStaticChrome ? new Graphics() : null;
+    const initialAlpha = this.isFadingControlIsland(id) ? 0 : CONTROL_REVEAL_MAX_ALPHA;
+    sprite.alpha = initialAlpha;
+    if (background) this.htmlControlLayer.addChild(background);
     this.htmlControlLayer.addChild(sprite);
+    if (contentMask) {
+      sprite.mask = contentMask;
+      this.htmlControlLayer.addChild(contentMask);
+    }
+    if (border) this.htmlControlLayer.addChild(border);
     return {
       id,
       element,
       rect,
       source,
       sprite,
+      background,
+      border,
+      contentMask,
       sourceWidth: rect.width,
       sourceHeight: rect.height,
+      visualAlpha: initialAlpha,
+      targetAlpha: initialAlpha,
       transformCorrection: { x: 0, y: 0 },
       transformCorrectionFrame: 0
     };
@@ -433,11 +489,23 @@ export class GalaxyViewport {
     for (const island of this.controlIslands.values()) {
       this.onControlHost?.(island.id, null);
       if (island.transformCorrectionFrame) window.cancelAnimationFrame(island.transformCorrectionFrame);
+      if (island.background) this.htmlControlLayer.removeChild(island.background);
       this.htmlControlLayer.removeChild(island.sprite);
+      if (island.contentMask) this.htmlControlLayer.removeChild(island.contentMask);
+      if (island.border) this.htmlControlLayer.removeChild(island.border);
+      island.background?.destroy();
+      island.contentMask?.destroy();
+      island.border?.destroy();
       island.sprite.destroy({ texture: true, textureSource: false });
       island.source.destroy();
       island.element.remove();
     }
+    for (const transition of this.drawerTransitions.values()) {
+      transition.background.destroy();
+      transition.border.destroy();
+      transition.panelMask.destroy();
+    }
+    this.drawerTransitions.clear();
     this.controlIslands.clear();
   }
 
@@ -508,17 +576,22 @@ export class GalaxyViewport {
     const searchPopover = this.controlIslands.get("search-popover");
     const bottomRoute = this.controlIslands.get("bottom-route-command");
     const layerDock = this.controlIslands.get("layer-dock");
-    const leftVector = this.controlIslands.get("left-vector-drawer");
-    const rightInspector = this.controlIslands.get("right-signal-inspector");
+    const leftVectorTab = this.controlIslands.get("left-vector-tab");
+    const leftVectorPanel = this.controlIslands.get("left-vector-panel");
+    const rightInspectorTab = this.controlIslands.get("right-signal-tab");
+    const rightInspectorPanel = this.controlIslands.get("right-signal-panel");
     const toast = this.controlIslands.get("toast-console");
     if (topConsole) topConsole.rect = this.topConsoleRect();
     if (searchPopover) searchPopover.rect = this.searchPopoverRect();
     if (bottomRoute) bottomRoute.rect = this.bottomRouteRect();
     if (layerDock) layerDock.rect = this.layerDockRect();
-    if (leftVector) leftVector.rect = this.leftVectorRect();
-    if (rightInspector) rightInspector.rect = this.rightInspectorRect();
+    if (leftVectorTab) leftVectorTab.rect = this.leftVectorTabRect();
+    if (leftVectorPanel) leftVectorPanel.rect = this.leftVectorPanelRect();
+    if (rightInspectorTab) rightInspectorTab.rect = this.rightInspectorTabRect();
+    if (rightInspectorPanel) rightInspectorPanel.rect = this.rightInspectorPanelRect();
     if (toast) toast.rect = this.toastRect();
     for (const island of this.controlIslands.values()) this.layoutControlIsland(island);
+    this.updateDrawerVisuals(true);
   }
 
   private bottomRouteRect(): ControlIslandRect {
@@ -555,35 +628,38 @@ export class GalaxyViewport {
   }
 
   private layerDockRect(): ControlIslandRect {
-    const bottomRoute = this.bottomRouteRect();
+    const bottomInset = 16;
     if (this.root.clientWidth < 640) {
+      const height = 208;
       return {
         ...LAYER_DOCK_RECT,
         x: Math.max(16, this.root.clientWidth - LAYER_DOCK_RECT.width - 16),
-        y: Math.max(this.topConsoleRect().y + this.topConsoleRect().height + 14, bottomRoute.y - 208 - 14),
-        height: 208
+        y: Math.max(this.topConsoleRect().y + this.topConsoleRect().height + 14, this.root.clientHeight - height - bottomInset),
+        height
       };
     }
 
     return {
       ...LAYER_DOCK_RECT,
       x: Math.max(16, this.root.clientWidth - LAYER_DOCK_RECT.width - 16),
-      y: Math.max(this.topConsoleRect().y + this.topConsoleRect().height + 14, bottomRoute.y - LAYER_DOCK_RECT.height - 14)
+      y: Math.max(this.topConsoleRect().y + this.topConsoleRect().height + 14, this.root.clientHeight - LAYER_DOCK_RECT.height - bottomInset)
     };
   }
 
-  private leftVectorRect(): ControlIslandRect {
+  private leftVectorTabRect(): ControlIslandRect {
     const top = this.topConsoleRect();
     const y = top.y + top.height + 14;
-    const expanded = this.expandedControlIslands.has("left-vector-drawer");
-    if (!expanded) {
-      return {
-        ...LEFT_VECTOR_RECT,
-        y,
-        width: 38,
-        height: 78
-      };
-    }
+    return {
+      ...LEFT_VECTOR_RECT,
+      y,
+      width: 38,
+      height: 78
+    };
+  }
+
+  private leftVectorPanelRect(): ControlIslandRect {
+    const top = this.topConsoleRect();
+    const y = top.y + top.height + 14;
     const compact = this.root.clientWidth < 640;
     const width = compact ? Math.max(120, this.root.clientWidth - LAYER_DOCK_RECT.width - 64) : LEFT_VECTOR_RECT.width;
     const availableHeight = this.root.clientHeight - y - BOTTOM_ROUTE_RECT.height - 34;
@@ -595,21 +671,25 @@ export class GalaxyViewport {
     };
   }
 
-  private rightInspectorRect(): ControlIslandRect {
+  private rightInspectorTabRect(): ControlIslandRect {
     const top = this.topConsoleRect();
     const compact = this.root.clientWidth < 640;
-    const expanded = this.expandedControlIslands.has("right-signal-inspector");
     const compactY = top.y + top.height + 14 + 172;
     const y = compact ? compactY : top.y + top.height + 14;
-    if (!expanded) {
-      return {
-        ...RIGHT_INSPECTOR_RECT,
-        x: compact ? 16 : Math.max(364, this.root.clientWidth - 38 - 16),
-        y: compact ? top.y + top.height + 108 : y,
-        width: 38,
-        height: 78
-      };
-    }
+    return {
+      ...RIGHT_INSPECTOR_RECT,
+      x: compact ? 16 : Math.max(364, this.root.clientWidth - 38 - 16),
+      y: compact ? top.y + top.height + 108 : y,
+      width: 38,
+      height: 78
+    };
+  }
+
+  private rightInspectorPanelRect(): ControlIslandRect {
+    const top = this.topConsoleRect();
+    const compact = this.root.clientWidth < 640;
+    const compactY = top.y + top.height + 14 + 172;
+    const y = compact ? compactY : top.y + top.height + 14;
     const width = compact ? Math.max(220, this.root.clientWidth - 32) : RIGHT_INSPECTOR_RECT.width;
     const availableHeight = this.root.clientHeight - y - BOTTOM_ROUTE_RECT.height - 34;
     return {
@@ -638,10 +718,219 @@ export class GalaxyViewport {
     if (sourceSizeChanged) this.recreateControlIslandSource(island);
     island.sprite.position.set(island.rect.x, island.rect.y);
     island.sprite.scale.set(1);
-    island.sprite.visible = island.id !== "search-popover" || this.expandedControlIslands.has("search-popover");
+    const targetVisible = this.isControlIslandVisible(island.id);
+    if (this.isFadingControlIsland(island.id)) {
+      island.targetAlpha = targetVisible ? CONTROL_REVEAL_MAX_ALPHA : 0;
+      island.sprite.visible = targetVisible || island.visualAlpha > 0.01;
+      island.sprite.alpha = island.visualAlpha;
+    } else {
+      island.visualAlpha = targetVisible ? CONTROL_REVEAL_MAX_ALPHA : 0;
+      island.targetAlpha = island.visualAlpha;
+      island.sprite.visible = targetVisible;
+      island.sprite.alpha = island.visualAlpha;
+    }
     island.element.style.pointerEvents = island.sprite.visible ? "auto" : "none";
     island.source.resize(island.rect.width, island.rect.height);
+    island.sourceWidth = island.rect.width;
+    island.sourceHeight = island.rect.height;
+    this.updateStaticIslandChrome(island);
     island.source.requestPaint();
+  }
+
+  private setDrawerExpanded(id: DrawerId, expanded: boolean, onComplete?: () => void): void {
+    const transition = this.drawerTransitions.get(id);
+    if (!transition) {
+      onComplete?.();
+      return;
+    }
+
+    if (expanded) this.expandedDrawers.add(id);
+    else this.expandedDrawers.delete(id);
+    transition.target = expanded ? 1 : 0;
+    this.controlIslandAnimating = true;
+    this.updateDrawerVisuals(true);
+    this.requestControlPaint(this.drawerTabId(id));
+    this.requestControlPaint(this.drawerPanelId(id));
+    onComplete?.();
+  }
+
+  private isDrawerId(id: ControlIslandId | DrawerId): id is DrawerId {
+    return id === "left-vector-drawer" || id === "right-signal-inspector";
+  }
+
+  private isControlIslandVisible(id: ControlIslandId): boolean {
+    if (id === "search-popover" || id === "toast-console") return this.expandedControlIslands.has(id);
+    return true;
+  }
+
+  private isFadingControlIsland(id: ControlIslandId): boolean {
+    return id === "toast-console";
+  }
+
+  private updateControlIslandTransitions(): void {
+    if (!this.controlIslandAnimating) return;
+    this.controlIslandAnimating = false;
+
+    for (const [id, transition] of this.drawerTransitions) {
+      if (Math.abs(transition.progress - transition.target) > 0.001) {
+        const previous = transition.progress;
+        const direction = transition.target > transition.progress ? 1 : -1;
+        transition.progress = clamp(transition.progress + CONTROL_REVEAL_STEP * direction, 0, 1);
+        if (Math.abs(transition.progress - transition.target) <= 0.001 && Math.abs(previous - transition.target) > 0.001) {
+          this.onControlTransitionEnd?.(id, transition.target === 1);
+        }
+        this.controlIslandAnimating = true;
+      }
+    }
+
+    for (const island of this.controlIslands.values()) {
+      if (!this.isFadingControlIsland(island.id)) continue;
+      if (Math.abs(island.visualAlpha - island.targetAlpha) <= 0.001) continue;
+
+      const direction = island.targetAlpha > island.visualAlpha ? 1 : -1;
+      island.visualAlpha = clamp(island.visualAlpha + CONTROL_FADE_STEP * direction, 0, CONTROL_REVEAL_MAX_ALPHA);
+      if (Math.abs(island.visualAlpha - island.targetAlpha) <= CONTROL_FADE_STEP) island.visualAlpha = island.targetAlpha;
+
+      island.sprite.alpha = island.visualAlpha;
+      island.sprite.visible = island.visualAlpha > 0.01 || island.targetAlpha > 0;
+      island.element.style.pointerEvents = island.targetAlpha > 0.5 ? "auto" : "none";
+      this.updateStaticIslandChrome(island);
+      this.controlIslandAnimating = true;
+    }
+
+    this.updateDrawerVisuals(false);
+  }
+
+  private createDrawerChrome(id: DrawerId): void {
+    const background = new Graphics();
+    const border = new Graphics();
+    const panelMask = new Graphics();
+    this.htmlControlLayer.addChildAt(background, 0);
+    this.htmlControlLayer.addChild(panelMask);
+    this.htmlControlLayer.addChild(border);
+    this.drawerTransitions.set(id, { progress: 0, target: 0, background, border, panelMask });
+  }
+
+  private isDrawerSurface(id: ControlIslandId): boolean {
+    return id === "left-vector-tab" || id === "left-vector-panel" || id === "right-signal-tab" || id === "right-signal-panel";
+  }
+
+  private updateStaticIslandChrome(island: ControlIsland): void {
+    if (!island.background || !island.border || !island.contentMask) return;
+    const visible = island.sprite.visible;
+    const alpha = CONTROL_REVEAL_MAX_ALPHA > 0 ? island.visualAlpha / CONTROL_REVEAL_MAX_ALPHA : 1;
+    island.background.visible = visible;
+    island.border.visible = visible;
+    island.contentMask.visible = visible;
+    island.background.alpha = alpha;
+    island.border.alpha = alpha;
+    this.drawChromeBackground(island.background, island.rect, 1);
+    this.drawChromeBorder(island.border, island.rect, 1);
+    this.drawChromeMask(island.contentMask, island.rect);
+  }
+
+  private updateDrawerVisuals(force: boolean): void {
+    for (const [id, transition] of this.drawerTransitions) {
+      const amount = this.easeInOutCubic(transition.progress);
+      const tab = this.controlIslands.get(this.drawerTabId(id));
+      const panel = this.controlIslands.get(this.drawerPanelId(id));
+      if (!tab || !panel) continue;
+
+      tab.sprite.alpha = CONTROL_REVEAL_MAX_ALPHA * (1 - amount);
+      panel.sprite.alpha = CONTROL_REVEAL_MAX_ALPHA * amount;
+      tab.sprite.visible = force || tab.sprite.alpha > 0.01;
+      panel.sprite.visible = force || panel.sprite.alpha > 0.01;
+      panel.sprite.mask = transition.panelMask;
+      tab.element.style.pointerEvents = amount < 0.45 ? "auto" : "none";
+      panel.element.style.pointerEvents = amount > 0.55 ? "auto" : "none";
+
+      const chromeRect = this.lerpControlRect(tab.rect, panel.rect, amount);
+      this.drawDrawerChrome(transition.background, transition.border, chromeRect, amount);
+      this.drawDrawerMask(transition.panelMask, chromeRect);
+    }
+  }
+
+  private drawDrawerChrome(background: Graphics, border: Graphics, rect: ControlIslandRect, amount: number): void {
+    this.drawChromeBackground(background, rect, amount);
+    this.drawChromeBorder(border, rect, amount);
+  }
+
+  private drawChromeBackground(background: Graphics, rect: ControlIslandRect, amount: number): void {
+    background.clear();
+    background
+      .moveTo(rect.x + 12, rect.y)
+      .lineTo(rect.x + rect.width, rect.y)
+      .lineTo(rect.x + rect.width, rect.y + rect.height - 12)
+      .lineTo(rect.x + rect.width - 12, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + 12)
+      .closePath()
+      .fill({ color: 0x06101f, alpha: 0.52 + amount * 0.16 });
+  }
+
+  private drawChromeBorder(border: Graphics, rect: ControlIslandRect, amount: number): void {
+    const color = 0x71d5ff;
+    const cut = 12;
+    const alpha = 0.28 + amount * 0.26;
+    border.clear();
+    border
+      .moveTo(rect.x + cut, rect.y)
+      .lineTo(rect.x + rect.width, rect.y)
+      .lineTo(rect.x + rect.width, rect.y + rect.height - cut)
+      .lineTo(rect.x + rect.width - cut, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + cut)
+      .closePath()
+      .stroke({ color, alpha, width: 1.5 });
+
+    const accent = Math.min(rect.width * 0.32, 76);
+    border.moveTo(rect.x + cut + 4, rect.y + 1).lineTo(rect.x + cut + 4 + accent, rect.y + 1).stroke({ color, alpha: alpha * 1.35, width: 2 });
+    border.moveTo(rect.x + rect.width - cut - accent - 4, rect.y + rect.height - 1).lineTo(rect.x + rect.width - cut - 4, rect.y + rect.height - 1).stroke({ color, alpha: alpha, width: 2 });
+  }
+
+  private drawDrawerMask(mask: Graphics, rect: ControlIslandRect): void {
+    this.drawChromeMask(mask, rect);
+  }
+
+  private drawChromeMask(mask: Graphics, rect: ControlIslandRect): void {
+    const cut = 12;
+    mask.clear();
+    mask
+      .moveTo(rect.x + cut, rect.y)
+      .lineTo(rect.x + rect.width, rect.y)
+      .lineTo(rect.x + rect.width, rect.y + rect.height - cut)
+      .lineTo(rect.x + rect.width - cut, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + rect.height)
+      .lineTo(rect.x, rect.y + cut)
+      .closePath()
+      .fill({ color: 0xffffff, alpha: 1 });
+  }
+
+  private drawerTabId(id: DrawerId): ControlIslandId {
+    return id === "left-vector-drawer" ? "left-vector-tab" : "right-signal-tab";
+  }
+
+  private drawerPanelId(id: DrawerId): ControlIslandId {
+    return id === "left-vector-drawer" ? "left-vector-panel" : "right-signal-panel";
+  }
+
+  private drawerIdForPanel(id: ControlIslandId): DrawerId | null {
+    if (id === "left-vector-panel") return "left-vector-drawer";
+    if (id === "right-signal-panel") return "right-signal-inspector";
+    return null;
+  }
+
+  private lerpControlRect(from: ControlIslandRect, to: ControlIslandRect, amount: number): ControlIslandRect {
+    return {
+      x: from.x + (to.x - from.x) * amount,
+      y: from.y + (to.y - from.y) * amount,
+      width: from.width + (to.width - from.width) * amount,
+      height: from.height + (to.height - from.height) * amount
+    };
+  }
+
+  private easeInOutCubic(amount: number): number {
+    return amount < 0.5 ? 4 * amount ** 3 : 1 - (-2 * amount + 2) ** 3 / 2;
   }
 
   private recreateControlIslandSource(island: ControlIsland): void {
@@ -661,7 +950,10 @@ export class GalaxyViewport {
       autoRequestPaint: true
     });
     island.sprite = Sprite.from(island.source);
-    island.sprite.alpha = 0.92;
+    island.sprite.alpha = island.visualAlpha;
+    const drawerId = this.drawerIdForPanel(island.id);
+    if (drawerId) island.sprite.mask = this.drawerTransitions.get(drawerId)?.panelMask ?? null;
+    else if (island.contentMask) island.sprite.mask = island.contentMask;
     island.sourceWidth = island.rect.width;
     island.sourceHeight = island.rect.height;
     island.transformCorrection = { x: 0, y: 0 };
@@ -678,14 +970,20 @@ export class GalaxyViewport {
       sprite.width = width;
       sprite.height = height;
     }
+    if (this.globalBloomSprite) {
+      const size = Math.max(width, height) * 1.22;
+      this.globalBloomSprite.position.set(width * 0.56, height * 0.46);
+      this.globalBloomSprite.width = size;
+      this.globalBloomSprite.height = size;
+    }
 
     this.glassTint.clear();
     this.glassTint.rect(0, 0, width, height).stroke({ color: 0x71d5ff, alpha: 0.1, width: 2 });
-    this.glassTint.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.018 });
-    this.glassTint.rect(0, 0, width, Math.max(18, height * 0.035)).fill({ color: 0x000000, alpha: 0.055 });
-    this.glassTint.rect(0, height - Math.max(22, height * 0.045), width, Math.max(22, height * 0.045)).fill({ color: 0x000000, alpha: 0.07 });
-    this.glassTint.rect(0, 0, Math.max(18, width * 0.025), height).fill({ color: 0x000000, alpha: 0.052 });
-    this.glassTint.rect(width - Math.max(18, width * 0.025), 0, Math.max(18, width * 0.025), height).fill({ color: 0x000000, alpha: 0.052 });
+    this.glassTint.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.024 });
+    this.glassTint.rect(0, 0, width, Math.max(24, height * 0.05)).fill({ color: 0x000000, alpha: 0.068 });
+    this.glassTint.rect(0, height - Math.max(32, height * 0.065), width, Math.max(32, height * 0.065)).fill({ color: 0x000000, alpha: 0.088 });
+    this.glassTint.rect(0, 0, Math.max(24, width * 0.035), height).fill({ color: 0x000000, alpha: 0.064 });
+    this.glassTint.rect(width - Math.max(24, width * 0.035), 0, Math.max(24, width * 0.035), height).fill({ color: 0x000000, alpha: 0.064 });
     this.glassTint.rect(1, 1, 1, height - 2).fill({ color: 0xff5571, alpha: 0.035 });
     this.glassTint.rect(width - 2, 1, 1, height - 2).fill({ color: 0x71d5ff, alpha: 0.05 });
   }
@@ -693,17 +991,18 @@ export class GalaxyViewport {
   private updateDisplayEffects(): void {
     const warning = this.warningLevel();
     if (this.blueNoiseSprite) {
-      this.blueNoiseSprite.tilePosition.x = this.routePhase * -3;
-      this.blueNoiseSprite.tilePosition.y = this.routePhase * 1.5;
+      this.blueNoiseSprite.tilePosition.x = this.routePhase * -1.2;
+      this.blueNoiseSprite.tilePosition.y = this.routePhase * 0.6;
     }
-    if (this.scanlineSprite) this.scanlineSprite.tilePosition.y = Math.floor(this.routePhase * 12) % 6;
+    if (this.scanlineSprite) this.scanlineSprite.tilePosition.y = Math.floor(this.routePhase * 5) % 6;
     if (this.glassSmudgeSprite) {
-      this.glassSmudgeSprite.tilePosition.x = Math.sin(this.routePhase * 0.15) * 6;
-      this.glassSmudgeSprite.tilePosition.y = Math.cos(this.routePhase * 0.11) * 4;
+      this.glassSmudgeSprite.tilePosition.x = Math.sin(this.routePhase * 0.09) * 4;
+      this.glassSmudgeSprite.tilePosition.y = Math.cos(this.routePhase * 0.07) * 3;
     }
+    if (this.globalBloomSprite) this.globalBloomSprite.alpha = 0.048 + Math.sin(this.routePhase * 0.45) * 0.01;
     if (this.redNoiseSprite) {
-      this.redNoiseSprite.tilePosition.x = this.routePhase * 8;
-      this.redNoiseSprite.alpha = warning === "critical" ? 0.035 + Math.sin(this.routePhase * 5) * 0.008 : warning === "caution" ? 0.012 : 0;
+      this.redNoiseSprite.tilePosition.x = this.routePhase * 3;
+      this.redNoiseSprite.alpha = warning === "critical" ? 0.028 + Math.sin(this.routePhase * 2.2) * 0.006 : warning === "caution" ? 0.009 : 0;
     }
 
     this.alertInterference.clear();
@@ -712,7 +1011,7 @@ export class GalaxyViewport {
     const height = this.root.clientHeight;
     const color = warning === "critical" ? 0xff5571 : 0xff9b54;
     const alpha = warning === "critical" ? 0.035 : 0.016;
-    const offset = (this.routePhase * 11) % 96;
+    const offset = (this.routePhase * 5) % 96;
     for (let y = offset; y < height; y += 96) {
       this.alertInterference.rect(0, y, width * 0.18, 1).fill({ color, alpha });
       this.alertInterference.rect(width * 0.82, y + 24, width * 0.18, 1).fill({ color, alpha });
@@ -735,14 +1034,15 @@ export class GalaxyViewport {
   private syncControlIslandTransform(island: ControlIsland): void {
     if (!this.htmlCanvas?.getElementTransform) return;
     const element = island.element;
+    const targetRect = island.rect;
     element.style.transform = "";
     const elementWidth = Math.max(1, element.offsetWidth);
     const elementHeight = Math.max(1, element.offsetHeight);
     const screenSpaceTransform = new DOMMatrix()
-      .translate(island.rect.x, island.rect.y)
+      .translate(targetRect.x, targetRect.y)
       .scale(
-        island.rect.width / elementWidth,
-        island.rect.height / elementHeight
+        targetRect.width / elementWidth,
+        targetRect.height / elementHeight
       );
     try {
       const computedTransform = this.htmlCanvas.getElementTransform(element, screenSpaceTransform);
@@ -768,11 +1068,12 @@ export class GalaxyViewport {
       if (!this.controlIslands.has(island.id)) return;
       const canvasRect = this.app.canvas.getBoundingClientRect();
       const actual = island.element.getBoundingClientRect();
+      const targetRect = island.rect;
       const expected = {
-        left: canvasRect.left + island.rect.x,
-        top: canvasRect.top + island.rect.y,
-        width: island.rect.width,
-        height: island.rect.height
+        left: canvasRect.left + targetRect.x,
+        top: canvasRect.top + targetRect.y,
+        width: targetRect.width,
+        height: targetRect.height
       };
       const residualX = expected.left - actual.left;
       const residualY = expected.top - actual.top;
@@ -816,11 +1117,12 @@ export class GalaxyViewport {
   }
 
   private tick(): void {
-    this.routePhase += 0.035;
-    this.routeCommitFlash *= 0.9;
-    this.camera.x += (this.camera.targetX - this.camera.x) * 0.16;
-    this.camera.y += (this.camera.targetY - this.camera.y) * 0.16;
-    this.camera.scale += (this.camera.targetScale - this.camera.scale) * 0.16;
+    this.routePhase += 0.016;
+    this.routeCommitFlash *= 0.94;
+    this.camera.x += (this.camera.targetX - this.camera.x) * 0.1;
+    this.camera.y += (this.camera.targetY - this.camera.y) * 0.1;
+    this.camera.scale += (this.camera.targetScale - this.camera.scale) * 0.1;
+    this.updateControlIslandTransitions();
     this.applyCamera();
     this.updateLodTransition();
     this.updateLodVisibility();
@@ -1187,7 +1489,7 @@ export class GalaxyViewport {
     const state = this.state;
     if (!state) return;
     this.effects.clear();
-    const pulse = 0.55 + Math.sin(this.routePhase * 2.8) * 0.25;
+    const pulse = 0.55 + Math.sin(this.routePhase * 1.45) * 0.22;
     const lod = this.lodState();
     const hitMode = this.hitMode();
     const overlayAlpha = Math.max(lod.regionAlpha, lod.sectorAlpha);
@@ -1220,7 +1522,7 @@ export class GalaxyViewport {
     if (state.layers.rifts) {
       for (const region of regions.filter((item) => item.zone === "FRONTIER" || item.zone === "NULL")) {
         const point = this.pointFor(region);
-        const radius = this.layout.cell * (0.56 + (Math.sin(this.routePhase * 1.8 + region.col + region.row) + 1) * 0.06);
+        const radius = this.layout.cell * (0.56 + (Math.sin(this.routePhase * 0.9 + region.col + region.row) + 1) * 0.045);
         this.effects.circle(point.x, point.y, radius).stroke({ color: region.zone === "NULL" ? 0xff5571 : 0xff9b54, alpha: 0.18, width: this.worldWidth(2) });
       }
     }
@@ -1237,7 +1539,7 @@ export class GalaxyViewport {
           const radius = this.worldWidth(9 + pulse * 12 + this.routeCommitFlash * 16);
           this.effects.circle(b.x, b.y, radius).stroke({ color, alpha: 0.36 + flashAlpha, width: this.worldWidth(1.8) });
         }
-        const t = (this.routePhase * 0.18 + index * 0.17) % 1;
+        const t = (this.routePhase * 0.09 + index * 0.17) % 1;
         sparkIndex = this.drawRouteSpark(sparkIndex, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, color);
       }
       this.hideUnusedRouteSparks(sparkIndex);
@@ -1246,34 +1548,19 @@ export class GalaxyViewport {
     }
   }
 
-  private updateSensorSprites(state: AppState, pulse: number, hitMode: HitMode): void {
-    const selectedPoint = this.pointForSelection(state.selected, hitMode);
+  private updateSensorSprites(state: AppState, pulse: number, _hitMode: HitMode): void {
+    const selectedPoint = this.pointForComponentSelection(state.selected);
     const selectedRegion = this.regionForSelection(state.selected);
     const selectedColor = selectedRegion ? zoneColors[selectedRegion.zone] : 0xc49cff;
-    const hoveredId = this.hoveredEndpoint ?? this.hovered;
-    const hoverPoint = hoveredId ? this.pointForSelection(hoveredId, hitMode) : null;
-    const hoverRegion = hoveredId ? this.regionForSelection(hoveredId) : null;
-    const hoverColor = hoverRegion ? zoneColors[hoverRegion.zone] : 0x71d5ff;
 
-    this.updateReticleSprite("selected", selectedPoint, selectedColor, 0.42 + pulse * 0.22, 58 + pulse * 10);
-    this.updateReticleSprite("hover", hoverPoint, hoverColor, 0.24 + pulse * 0.2, 46 + pulse * 8);
+    this.updateReticleSprite(selectedPoint, selectedColor, 0.36 + pulse * 0.14, 42 + pulse * 4);
     this.updateRangeRingSprite(state, selectedPoint, selectedColor);
   }
 
-  private pointForSelection(id: string, hitMode: HitMode): { x: number; y: number } | null {
+  private pointForComponentSelection(id: string): { x: number; y: number } | null {
     const endpoint = endpointById.get(id);
-    if (endpoint) {
-      const region = byCoord.get(endpoint.region);
-      if (!region) return null;
-      if (endpoint.kind === "sector") {
-        if (hitMode !== "sector") return this.pointFor(region);
-        const sector = region.sectors.find((item) => item.id === endpoint.sector);
-        return sector ? this.pointForCoords(sector.centerX, sector.centerZ) : null;
-      }
-      return this.pointForCoords(endpoint.x, endpoint.z);
-    }
-    const region = byCoord.get(id);
-    return region ? this.pointFor(region) : null;
+    if (!endpoint || endpoint.kind !== "location") return null;
+    return this.pointForCoords(endpoint.x, endpoint.z);
   }
 
   private regionForSelection(id: string): Region | undefined {
@@ -1281,24 +1568,22 @@ export class GalaxyViewport {
     return endpoint ? byCoord.get(endpoint.region) : byCoord.get(id);
   }
 
-  private updateReticleSprite(kind: "selected" | "hover", point: { x: number; y: number } | null, color: number, alpha: number, screenSize: number): void {
+  private updateReticleSprite(point: { x: number; y: number } | null, color: number, alpha: number, screenSize: number): void {
     const texture = this.navcomTextures.get("reticle-ping");
-    const sprite = kind === "selected" ? this.selectedReticleSprite : this.hoverReticleSprite;
     if (!texture || !point) {
-      if (sprite) sprite.visible = false;
+      if (this.selectedReticleSprite) this.selectedReticleSprite.visible = false;
       return;
     }
 
-    const reticle = sprite ?? this.createReticleSprite(texture);
-    if (kind === "selected") this.selectedReticleSprite = reticle;
-    else this.hoverReticleSprite = reticle;
+    const reticle = this.selectedReticleSprite ?? this.createReticleSprite(texture);
+    this.selectedReticleSprite = reticle;
 
     const size = this.worldWidth(screenSize);
     reticle.visible = true;
     reticle.position.set(point.x, point.y);
     reticle.width = size;
     reticle.height = size;
-    reticle.rotation = kind === "selected" ? this.routePhase * 0.12 : -this.routePhase * 0.18;
+    reticle.rotation = this.routePhase * 0.045;
     reticle.tint = color;
     reticle.alpha = alpha;
   }
@@ -1325,14 +1610,13 @@ export class GalaxyViewport {
       this.mapReticleLayer.addChildAt(this.rangeRingSprite, 0);
     }
 
-    const range = state.driveTier === 4 ? 5 : state.driveTier;
-    const size = Math.max(this.layout.cell * (range * 2 + 1.25), this.worldWidth(84));
+    const size = this.worldWidth(118);
     this.rangeRingSprite.visible = true;
     this.rangeRingSprite.position.set(point.x, point.y);
     this.rangeRingSprite.width = size;
     this.rangeRingSprite.height = size;
     this.rangeRingSprite.tint = color;
-    this.rangeRingSprite.alpha = 0.13 + Math.sin(this.routePhase * 1.2) * 0.025;
+    this.rangeRingSprite.alpha = 0.095 + Math.sin(this.routePhase * 0.55) * 0.016;
   }
 
   private drawRouteSpark(index: number, x: number, y: number, color: number): number {
@@ -1356,7 +1640,7 @@ export class GalaxyViewport {
     spark.width = size;
     spark.height = size;
     spark.tint = color;
-    spark.alpha = 0.86 + Math.sin(this.routePhase * 6 + index) * 0.12;
+    spark.alpha = 0.78 + Math.sin(this.routePhase * 2.4 + index) * 0.1;
     return index + 1;
   }
 

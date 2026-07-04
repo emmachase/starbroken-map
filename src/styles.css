@@ -249,12 +249,10 @@ select {
   gap: 12px;
   align-items: center;
   overflow: hidden;
-  border: 1px solid rgba(113, 213, 255, .42);
-  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
-  background:
-    linear-gradient(90deg, rgba(113, 213, 255, .2), transparent 34%),
-    linear-gradient(180deg, rgba(6, 16, 31, .96), rgba(3, 8, 17, .84));
-  box-shadow: inset 0 0 24px rgba(113, 213, 255, .1), 0 0 32px rgba(113, 213, 255, .12);
+  border: 0;
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
   padding: 9px 12px;
   color: var(--ink);
   user-select: auto;
@@ -479,21 +477,21 @@ select {
   font-size: 11px;
 }
 
-.navcom-vector-drawer-island,
-.navcom-signal-inspector-island {
+.navcom-vector-drawer-tab-island,
+.navcom-vector-drawer-panel-island,
+.navcom-signal-inspector-tab-island,
+.navcom-signal-inspector-panel-island {
+  --drawer-cut: 13px;
   position: absolute;
   grid-template-columns: 1fr;
   grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
   gap: 0;
   padding: 0;
-}
-
-.navcom-vector-drawer-island:has(> .drawer-tab),
-.navcom-signal-inspector-island:has(> .drawer-tab) {
   border: 0;
   background: transparent;
   box-shadow: none;
+  clip-path: polygon(var(--drawer-cut) 0, 100% 0, 100% calc(100% - var(--drawer-cut)), calc(100% - var(--drawer-cut)) 100%, 0 100%, 0 var(--drawer-cut));
 }
 
 .drawer-tab {
@@ -507,10 +505,18 @@ select {
   margin: 0;
   padding: 0;
   color: var(--cyan);
-  border-color: rgba(113, 213, 255, .5);
-  background:
-    linear-gradient(180deg, rgba(113, 213, 255, .18), rgba(5, 12, 25, .92)),
-    rgba(4, 8, 17, .86);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.drawer-tab:hover,
+.drawer-tab:focus,
+.drawer-tab:focus-visible {
+  color: var(--cyan);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .drawer-tab.vertical span {
@@ -521,10 +527,20 @@ select {
   line-height: 1;
 }
 
-.drawer-close {
+.drawer-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.drawer-pin {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 2px;
+  right: 0;
   bottom: auto;
   left: auto;
   z-index: 4;
@@ -538,46 +554,54 @@ select {
   font-size: 9px;
 }
 
-.navcom-vector-drawer-island .panel-header,
-.navcom-signal-inspector-island .panel-header {
-  padding: 11px 12px;
+.drawer-pin.active {
+  color: var(--ink);
+  border-color: rgba(245, 215, 96, .72);
+  background:
+    linear-gradient(90deg, rgba(245, 215, 96, .2), transparent 44%),
+    rgba(33, 28, 9, .88);
 }
 
-.navcom-vector-drawer-island .panel-body,
-.navcom-signal-inspector-island .panel-body {
-  height: auto;
+.navcom-vector-drawer-panel-island .panel-header,
+.navcom-signal-inspector-panel-island .panel-header {
+  padding: 8px 10px 10px;
+}
+
+.navcom-vector-drawer-panel-island .panel-body,
+.navcom-signal-inspector-panel-island .panel-body {
+  height: 100%;
   min-height: 0;
-  padding: 10px 12px 12px;
+  padding: 10px 10px 12px;
   overflow: auto;
 }
 
-.navcom-vector-drawer-island .row,
-.navcom-vector-drawer-island .statline,
-.navcom-signal-inspector-island .statline {
+.navcom-vector-drawer-panel-island .row,
+.navcom-vector-drawer-panel-island .statline,
+.navcom-signal-inspector-panel-island .statline {
   grid-template-columns: 1fr;
 }
 
-.navcom-vector-drawer-island .toggle-row {
+.navcom-vector-drawer-panel-island .toggle-row {
   gap: 6px;
 }
 
-.navcom-vector-drawer-island .chip,
-.navcom-vector-drawer-island .field,
-.navcom-vector-drawer-island .muted {
+.navcom-vector-drawer-panel-island .chip,
+.navcom-vector-drawer-panel-island .field,
+.navcom-vector-drawer-panel-island .muted {
   font-size: 11px;
 }
 
-.navcom-vector-drawer-island .list {
+.navcom-vector-drawer-panel-island .list {
   max-height: 220px;
   overflow: auto;
 }
 
-.navcom-signal-inspector-island .list {
+.navcom-signal-inspector-panel-island .list {
   max-height: 170px;
   overflow: auto;
 }
 
-.navcom-signal-inspector-island .data-grid {
+.navcom-signal-inspector-panel-island .data-grid {
   grid-template-columns: 78px minmax(0, 1fr);
 }
 

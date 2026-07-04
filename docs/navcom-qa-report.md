@@ -54,6 +54,11 @@ Captured under `docs/qa-shots/`:
 - Regression check: START/END endpoint labels and their badge backgrounds no longer render.
 - Regression check: panel material no longer uses `holo-grid`; focus-visible styling remains strong on keyboard focus.
 - Regression check: rectangular global reflection bands have been removed; glass material is carried by smudge, edge tint, and subtle vignette.
+- Static/build regression check: vector and signal drawers now use separate compact-tab and expanded-panel `HTMLSource` surfaces; Pixi crossfades the sources and draws animated notched chrome.
+- Static/build regression check: `reticle-ping` is restricted to selected location components; selected regions/sectors do not get reticle sprites.
+- Static/build regression check: `ring-soft` is fixed screen-space size and follows only selected location components.
+- Static/build regression check: route, alert, smudge, scanline, reticle, and camera animation cadences were slowed.
+- Static/build regression check: a subtle full-display bloom sprite was added alongside the existing vignette/glass material.
 
 ## Performance Probe
 

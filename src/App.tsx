@@ -44,7 +44,6 @@ const defaultState = (): AppState => ({
   activeZones: new Set<Zone>(zones),
   layers: {
     gates: true,
-    threat: true,
     rifts: false,
     range: true,
     labels: true
@@ -917,7 +916,6 @@ function LayerDockIsland({ state, patchState }: StateProps) {
 
   const dockLayers: Array<[keyof AppState["layers"], string]> = [
     ["gates", "Gates"],
-    ["threat", "Threat"],
     ["rifts", "Rifts"],
     ["range", "Range"],
     ["labels", "Labels"]

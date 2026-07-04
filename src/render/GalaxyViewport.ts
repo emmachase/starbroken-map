@@ -1,5 +1,5 @@
 import "pixi.js/html-source";
-import { Application, Assets, Container, Graphics, Sprite, Text, Texture, TilingSprite } from "pixi.js";
+import { Application, Assets, BlurFilter, Container, Graphics, Sprite, Text, Texture, TilingSprite } from "pixi.js";
 import { HTMLSource } from "pixi.js/html-source";
 import type { HTMLSourceCanvas } from "pixi.js/html-source";
 import { byCoord, endpointById, GALAXY_SIZE, gates, locationById, locations, regions, sectorForPoint, zoneColors } from "../data/galaxy";
@@ -163,6 +163,13 @@ export class GalaxyViewport {
   private readonly glassTint = new Graphics();
   private readonly alertInterference = new Graphics();
   private readonly world = new Container();
+  private readonly bloomWorld = new Container();
+  private readonly bloomGridLayer = new Graphics();
+  private readonly bloomSectorLayer = new Graphics();
+  private readonly bloomOverlayLayer = new Graphics();
+  private readonly bloomRouteLayer = new Graphics();
+  private readonly bloomEffects = new Graphics();
+  private readonly bloomFilter = new BlurFilter({ strength: 7, quality: 3, kernelSize: 9 });
   private readonly background = new Graphics();
   private readonly grid = new Graphics();
   private readonly overlays = new Graphics();
@@ -190,7 +197,6 @@ export class GalaxyViewport {
   private readonly routeSparkSprites: Sprite[] = [];
   private selectedReticleSprite: Sprite | null = null;
   private rangeRingSprite: Sprite | null = null;
-  private globalBloomSprite: Sprite | null = null;
   private blueNoiseSprite: TilingSprite | null = null;
   private redNoiseSprite: TilingSprite | null = null;
   private scanlineSprite: TilingSprite | null = null;
@@ -244,6 +250,16 @@ export class GalaxyViewport {
     await this.loadNavcomAssets();
     this.glassOverlayLayer.addChild(this.glassTint);
     this.createDisplayMaterial();
+    this.bloomWorld.alpha = 0.48;
+    this.bloomWorld.blendMode = "add";
+    this.bloomWorld.filters = [this.bloomFilter];
+    this.bloomWorld.addChild(
+      this.bloomGridLayer,
+      this.bloomSectorLayer,
+      this.bloomOverlayLayer,
+      this.bloomRouteLayer,
+      this.bloomEffects
+    );
     this.world.addChild(
       this.grid,
       this.overlays,
@@ -261,7 +277,7 @@ export class GalaxyViewport {
       this.particlesLayer
     );
     this.starfieldLayer.addChild(this.background);
-    this.mapWorldLayer.addChild(this.world);
+    this.mapWorldLayer.addChild(this.bloomWorld, this.world);
     this.alertInterferenceLayer.addChild(this.alertInterference);
     this.screenRoot.addChild(
       this.starfieldLayer,
@@ -367,7 +383,6 @@ export class GalaxyViewport {
     const redNoise = this.navcomTextures.get("noise-red");
     const scanlines = this.navcomTextures.get("scanline-mask");
     const smudge = this.navcomTextures.get("glass-smudge");
-    const bloom = this.navcomTextures.get("ring-soft");
 
     if (blueNoise) {
       this.blueNoiseSprite = new TilingSprite({ texture: blueNoise, width: 1, height: 1 });
@@ -389,15 +404,6 @@ export class GalaxyViewport {
       this.glassSmudgeSprite.blendMode = "screen";
       this.glassSmudgeSprite.tint = 0xa7e2ff;
       this.glassOverlayLayer.addChild(this.glassSmudgeSprite);
-    }
-
-    if (bloom) {
-      this.globalBloomSprite = new Sprite({ texture: bloom });
-      this.globalBloomSprite.anchor.set(0.5);
-      this.globalBloomSprite.alpha = 0.055;
-      this.globalBloomSprite.blendMode = "screen";
-      this.globalBloomSprite.tint = 0x71d5ff;
-      this.glassOverlayLayer.addChild(this.globalBloomSprite);
     }
 
     if (redNoise) {
@@ -512,7 +518,7 @@ export class GalaxyViewport {
   private showHtmlSourceWarning(): void {
     const warning = document.createElement("div");
     warning.className = "navcom-htmlsource-warning";
-    warning.textContent = "HTML-in-canvas unavailable: enable the experimental browser API for NAVCOM control compositing.";
+    warning.innerHTML = "HTML-in-canvas unavailable (CHROME ONLY): <a href=\"chrome://flags/#canvas-draw-element\">enable the experimental browser API for NAVCOM control compositing.</a>";
     this.root.appendChild(warning);
     this.htmlSourceWarning = warning;
   }
@@ -970,13 +976,6 @@ export class GalaxyViewport {
       sprite.width = width;
       sprite.height = height;
     }
-    if (this.globalBloomSprite) {
-      const size = Math.max(width, height) * 1.22;
-      this.globalBloomSprite.position.set(width * 0.56, height * 0.46);
-      this.globalBloomSprite.width = size;
-      this.globalBloomSprite.height = size;
-    }
-
     this.glassTint.clear();
     this.glassTint.rect(0, 0, width, height).stroke({ color: 0x71d5ff, alpha: 0.1, width: 2 });
     this.glassTint.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.024 });
@@ -999,7 +998,7 @@ export class GalaxyViewport {
       this.glassSmudgeSprite.tilePosition.x = Math.sin(this.routePhase * 0.09) * 4;
       this.glassSmudgeSprite.tilePosition.y = Math.cos(this.routePhase * 0.07) * 3;
     }
-    if (this.globalBloomSprite) this.globalBloomSprite.alpha = 0.048 + Math.sin(this.routePhase * 0.45) * 0.01;
+    this.bloomWorld.alpha = 0.42 + Math.sin(this.routePhase * 0.45) * 0.035;
     if (this.redNoiseSprite) {
       this.redNoiseSprite.tilePosition.x = this.routePhase * 3;
       this.redNoiseSprite.alpha = warning === "critical" ? 0.028 + Math.sin(this.routePhase * 2.2) * 0.006 : warning === "caution" ? 0.009 : 0;
@@ -1136,15 +1135,25 @@ export class GalaxyViewport {
   private applyCamera(): void {
     this.world.position.set(this.camera.x, this.camera.y);
     this.world.scale.set(this.camera.scale);
+    this.bloomWorld.position.set(this.camera.x, this.camera.y);
+    this.bloomWorld.scale.set(this.camera.scale);
   }
 
   private clampCameraTarget(): void {
-    const scaledW = this.layout.width * this.camera.targetScale;
-    const scaledH = this.layout.height * this.camera.targetScale;
-    const minX = this.root.clientWidth - scaledW - 160 * this.camera.targetScale;
-    const minY = this.root.clientHeight - scaledH - 160 * this.camera.targetScale;
-    const maxX = 160 * this.camera.targetScale;
-    const maxY = 160 * this.camera.targetScale;
+    const scale = this.camera.targetScale;
+    const mapLeft = this.layout.originX * scale;
+    const mapTop = this.layout.originY * scale;
+    const mapRight = (this.layout.originX + this.layout.width) * scale;
+    const mapBottom = (this.layout.originY + this.layout.height) * scale;
+    const baseSlack = 160 * scale;
+    const bottomRoute = this.bottomRouteRect();
+    const bottomControlSlack = Math.max(0, this.root.clientHeight - bottomRoute.y) + 40;
+    const topControlSlack = this.topConsoleRect().height + 30;
+    const sideControlSlack = this.root.clientWidth < 640 ? 120 : Math.max(LAYER_DOCK_RECT.width + 56, 160);
+    const minX = this.root.clientWidth - mapRight - baseSlack - sideControlSlack;
+    const minY = this.root.clientHeight - mapBottom - baseSlack - bottomControlSlack;
+    const maxX = baseSlack + sideControlSlack - mapLeft;
+    const maxY = baseSlack + topControlSlack - mapTop;
     this.camera.targetX = clamp(this.camera.targetX, Math.min(minX, maxX), Math.max(minX, maxX));
     this.camera.targetY = clamp(this.camera.targetY, Math.min(minY, maxY), Math.max(minY, maxY));
   }
@@ -1238,8 +1247,7 @@ export class GalaxyViewport {
       state.origin,
       state.destination,
       state.search,
-      [...state.activeZones].sort().join(","),
-      state.layers.threat
+      [...state.activeZones].sort().join(",")
     ].join(";");
   }
 
@@ -1326,6 +1334,8 @@ export class GalaxyViewport {
     this.regionLayer.visible = lod.regionAlpha > 0.01;
     this.sectorLayer.alpha = lod.sectorAlpha;
     this.sectorLayer.visible = lod.sectorAlpha > 0.01;
+    this.bloomSectorLayer.alpha = Math.max(lod.regionAlpha, lod.sectorAlpha);
+    this.bloomSectorLayer.visible = this.bloomSectorLayer.alpha > 0.01;
     this.regionLabels.visible = lod.regionLabelAlpha > 0.01;
     this.regionLabels.alpha = lod.regionLabelAlpha;
     this.sectorRegionLabels.visible = lod.sectorRegionLabelAlpha > 0.01;
@@ -1404,9 +1414,16 @@ export class GalaxyViewport {
     const width = this.layout.width + 180;
     const height = this.layout.height + 180;
     this.grid.clear();
+    this.bloomGridLayer.clear();
     if (includeLabels) this.axisLabels.removeChildren();
-    for (let x = 0; x < width; x += 48) this.grid.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
-    for (let y = 0; y < height; y += 48) this.grid.moveTo(0, y).lineTo(width, y).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
+    for (let x = 0; x < width; x += 48) {
+      this.grid.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
+      this.bloomGridLayer.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x71d5ff, alpha: 0.04, width: this.worldWidth(3) });
+    }
+    for (let y = 0; y < height; y += 48) {
+      this.grid.moveTo(0, y).lineTo(width, y).stroke({ color: 0x71d5ff, alpha: 0.045, width: this.worldWidth(1) });
+      this.bloomGridLayer.moveTo(0, y).lineTo(width, y).stroke({ color: 0x71d5ff, alpha: 0.04, width: this.worldWidth(3) });
+    }
     for (let y = 0; y < height; y += 5) this.grid.rect(0, y, width, 1).fill({ color: 0xffffff, alpha: 0.018 });
 
     if (!includeLabels) return;
@@ -1426,14 +1443,21 @@ export class GalaxyViewport {
     const state = this.state;
     if (!state) return;
     this.overlays.clear();
+    this.bloomOverlayLayer.clear();
 
     if (state.layers.rifts) {
       for (const region of regions.filter((item) => item.zone === "FRONTIER" || item.zone === "NULL")) {
         const point = this.pointFor(region);
+        const color = region.zone === "NULL" ? 0xff5571 : 0xff9b54;
         this.overlays.circle(point.x, point.y, this.layout.cell * 0.62).stroke({
-          color: region.zone === "NULL" ? 0xff5571 : 0xff9b54,
+          color,
           alpha: region.zone === "NULL" ? 0.34 : 0.26,
           width: this.worldWidth(1.5)
+        });
+        this.bloomOverlayLayer.circle(point.x, point.y, this.layout.cell * 0.62).stroke({
+          color,
+          alpha: region.zone === "NULL" ? 0.18 : 0.13,
+          width: this.worldWidth(5)
         });
       }
     }
@@ -1451,6 +1475,8 @@ export class GalaxyViewport {
         const end = this.rectFor(byCoord.get(`${String.fromCharCode(65 + maxCol)}${maxRow + 1}`)!);
         this.overlays.roundRect(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18)
           .stroke({ color: 0xc49cff, alpha: 0.72, width: this.worldWidth(2) });
+        this.bloomOverlayLayer.roundRect(start.x - 8, start.y - 8, end.x + end.w - start.x + 16, end.y + end.h - start.y + 16, 18)
+          .stroke({ color: 0xc49cff, alpha: 0.34, width: this.worldWidth(7) });
       }
     }
 
@@ -1462,6 +1488,7 @@ export class GalaxyViewport {
         const p2 = b ? this.pointForLocation(b) : null;
         if (!p1 || !p2) continue;
         this.overlays.moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).stroke({ color: 0x71d5ff, alpha: 0.42, width: this.worldWidth(2) });
+        this.bloomOverlayLayer.moveTo(p1.x, p1.y).lineTo(p2.x, p2.y).stroke({ color: 0x71d5ff, alpha: 0.24, width: this.worldWidth(6) });
         this.drawGateNode(p1.x, p1.y, 0.8);
         this.drawGateNode(p2.x, p2.y, 0.8);
       }
@@ -1472,15 +1499,22 @@ export class GalaxyViewport {
     const state = this.state;
     if (!state) return;
     this.routeLayer.clear();
+    this.bloomRouteLayer.clear();
     if (state.route.length < 2) return;
 
     for (let index = 1; index < state.route.length; index += 1) {
       const a = this.pointForStep(state.route[index - 1]);
       const b = this.pointForStep(state.route[index]);
+      const color = state.route[index].mode === "gate" ? 0x71d5ff : state.route[index].mode === "impulse" ? 0xf5d760 : 0xc49cff;
       this.routeLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({
-        color: state.route[index].mode === "gate" ? 0x71d5ff : state.route[index].mode === "impulse" ? 0xf5d760 : 0xc49cff,
+        color,
         alpha: 0.32,
         width: this.worldWidth(5)
+      });
+      this.bloomRouteLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({
+        color,
+        alpha: 0.34,
+        width: this.worldWidth(8)
       });
     }
   }
@@ -1489,6 +1523,7 @@ export class GalaxyViewport {
     const state = this.state;
     if (!state) return;
     this.effects.clear();
+    this.bloomEffects.clear();
     const pulse = 0.55 + Math.sin(this.routePhase * 1.45) * 0.22;
     const lod = this.lodState();
     const hitMode = this.hitMode();
@@ -1523,7 +1558,9 @@ export class GalaxyViewport {
       for (const region of regions.filter((item) => item.zone === "FRONTIER" || item.zone === "NULL")) {
         const point = this.pointFor(region);
         const radius = this.layout.cell * (0.56 + (Math.sin(this.routePhase * 0.9 + region.col + region.row) + 1) * 0.045);
-        this.effects.circle(point.x, point.y, radius).stroke({ color: region.zone === "NULL" ? 0xff5571 : 0xff9b54, alpha: 0.18, width: this.worldWidth(2) });
+        const color = region.zone === "NULL" ? 0xff5571 : 0xff9b54;
+        this.effects.circle(point.x, point.y, radius).stroke({ color, alpha: 0.18, width: this.worldWidth(2) });
+        this.bloomEffects.circle(point.x, point.y, radius).stroke({ color, alpha: 0.16, width: this.worldWidth(5) });
       }
     }
 
@@ -1535,9 +1572,11 @@ export class GalaxyViewport {
         const color = state.route[index].mode === "gate" ? 0x71d5ff : state.route[index].mode === "impulse" ? 0xf5d760 : 0xc49cff;
         const flashAlpha = this.routeCommitFlash * 0.34;
         this.effects.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color, alpha: 0.72 + flashAlpha, width: this.worldWidth(2.2 + this.routeCommitFlash * 2) });
+        this.bloomEffects.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color, alpha: 0.42 + flashAlpha * 0.7, width: this.worldWidth(7 + this.routeCommitFlash * 4) });
         if (state.route[index].mode === "gate") {
           const radius = this.worldWidth(9 + pulse * 12 + this.routeCommitFlash * 16);
           this.effects.circle(b.x, b.y, radius).stroke({ color, alpha: 0.36 + flashAlpha, width: this.worldWidth(1.8) });
+          this.bloomEffects.circle(b.x, b.y, radius).stroke({ color, alpha: 0.34 + flashAlpha * 0.55, width: this.worldWidth(5) });
         }
         const t = (this.routePhase * 0.09 + index * 0.17) % 1;
         sparkIndex = this.drawRouteSpark(sparkIndex, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, color);
@@ -1654,11 +1693,14 @@ export class GalaxyViewport {
     const rect = this.rectFor(region);
     this.effects.rect(rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2)
       .stroke({ color, alpha, width: this.worldWidth(3) });
+    this.bloomEffects.rect(rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2)
+      .stroke({ color, alpha: alpha * 0.7, width: this.worldWidth(9) });
   }
 
   private drawRegionFill(region: Region, color: number, alpha: number): void {
     const rect = this.rectFor(region);
     this.effects.rect(rect.x, rect.y, rect.w, rect.h).fill({ color, alpha });
+    this.bloomEffects.rect(rect.x, rect.y, rect.w, rect.h).fill({ color, alpha: alpha * 0.38 });
   }
 
   private drawSectorFill(endpointId: string, color: number, alpha: number, hitMode = this.hitMode()): void {
@@ -1672,6 +1714,8 @@ export class GalaxyViewport {
     const end = this.pointForCoords(sector.xMax, sector.zMax);
     this.effects.rect(start.x, start.y, end.x - start.x, end.y - start.y)
       .fill({ color, alpha });
+    this.bloomEffects.rect(start.x, start.y, end.x - start.x, end.y - start.y)
+      .fill({ color, alpha: alpha * 0.42 });
   }
 
   private drawEndpointGlow(endpointId: string, color: number, alpha: number, pad: number, hitMode = this.hitMode()): void {
@@ -1688,6 +1732,8 @@ export class GalaxyViewport {
       const end = this.pointForCoords(sector.xMax, sector.zMax);
       this.effects.rect(start.x - pad, start.y - pad, end.x - start.x + pad * 2, end.y - start.y + pad * 2)
         .stroke({ color, alpha, width: this.worldWidth(3) });
+      this.bloomEffects.rect(start.x - pad, start.y - pad, end.x - start.x + pad * 2, end.y - start.y + pad * 2)
+        .stroke({ color, alpha: alpha * 0.7, width: this.worldWidth(9) });
       return;
     }
 
@@ -1697,6 +1743,10 @@ export class GalaxyViewport {
       .stroke({ color, alpha, width: this.worldWidth(3) });
     this.effects.circle(point.x, point.y, Math.max(this.worldWidth(3), radius * 0.22))
       .fill({ color, alpha: Math.min(0.5, alpha * 0.75) });
+    this.bloomEffects.circle(point.x, point.y, radius)
+      .stroke({ color, alpha: alpha * 0.75, width: this.worldWidth(8) });
+    this.bloomEffects.circle(point.x, point.y, Math.max(this.worldWidth(5), radius * 0.34))
+      .fill({ color, alpha: Math.min(0.34, alpha * 0.52) });
   }
 
   private updateParticles(): void {
@@ -1747,6 +1797,7 @@ export class GalaxyViewport {
     this.regionLayer.removeChildren();
     this.sectorLayer.removeChildren();
     this.contentLayer.removeChildren();
+    this.bloomSectorLayer.clear();
 
     const search = state.search.trim().toLowerCase();
     const originEndpoint = endpointById.get(state.origin);
@@ -1763,9 +1814,11 @@ export class GalaxyViewport {
       const regionGraphic = new Graphics();
       regionGraphic.alpha = visible ? 1 : 0.18;
       regionGraphic.rect(rect.x, rect.y, rect.w, rect.h)
-        .fill({ color, alpha: state.layers.threat ? 0.35 : 0.24 })
+        .fill({ color, alpha: 0.24 })
         .stroke({ color, alpha: 0.55, width: this.worldWidth(1.2) });
       regionGraphic.rect(rect.x + 8, rect.y + 6, Math.max(12, rect.w * 0.36), this.worldWidth(2)).fill({ color, alpha: 0.26 });
+      this.bloomSectorLayer.rect(rect.x, rect.y, rect.w, rect.h)
+        .stroke({ color, alpha: visible ? 0.16 : 0.035, width: this.worldWidth(5) });
 
       const sectorGraphic = new Graphics();
       sectorGraphic.alpha = visible ? 1 : 0.18;
@@ -1776,6 +1829,12 @@ export class GalaxyViewport {
         sectorGraphic.rect(start.x, start.y, end.x - start.x, end.y - start.y)
           .fill({ color, alpha: sectorActive ? 0.18 : 0.055 })
           .stroke({ color, alpha: sectorActive ? 0.92 : 0.45, width: this.worldWidth(sectorActive ? 1.8 : 1) });
+        this.bloomSectorLayer.rect(start.x, start.y, end.x - start.x, end.y - start.y)
+          .stroke({
+            color,
+            alpha: visible ? (sectorActive ? 0.32 : 0.075) : 0.02,
+            width: this.worldWidth(sectorActive ? 7 : 3.5)
+          });
       }
 
       this.regionLayer.addChild(regionGraphic);

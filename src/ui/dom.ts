@@ -53,7 +53,6 @@ export const syncControls = (state: AppState): void => {
   qs<HTMLInputElement>("#useRange").checked = state.useRange;
   qs<HTMLInputElement>("#search").value = state.search;
   qs<HTMLInputElement>("#layerGates").checked = state.layers.gates;
-  qs<HTMLInputElement>("#layerThreat").checked = state.layers.threat;
   qs<HTMLInputElement>("#layerRifts").checked = state.layers.rifts;
   qs<HTMLInputElement>("#layerRange").checked = state.layers.range;
   qs<HTMLInputElement>("#layerLabels").checked = state.layers.labels;
@@ -77,7 +76,6 @@ export const readControlState = (state: AppState): void => {
   state.useRange = qs<HTMLInputElement>("#useRange").checked;
   state.search = qs<HTMLInputElement>("#search").value;
   state.layers.gates = qs<HTMLInputElement>("#layerGates").checked;
-  state.layers.threat = qs<HTMLInputElement>("#layerThreat").checked;
   state.layers.rifts = qs<HTMLInputElement>("#layerRifts").checked;
   state.layers.range = qs<HTMLInputElement>("#layerRange").checked;
   state.layers.labels = qs<HTMLInputElement>("#layerLabels").checked;

@@ -97,7 +97,6 @@ export interface RouteInfo {
 
 export interface Layers {
   gates: boolean;
-  threat: boolean;
   rifts: boolean;
   range: boolean;
   labels: boolean;

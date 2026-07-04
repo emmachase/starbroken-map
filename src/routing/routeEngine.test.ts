@@ -17,7 +17,6 @@ const stateFor = (overrides: Partial<AppState> = {}): AppState => ({
   activeZones: new Set<Zone>(["CORE", "MID", "FRONTIER", "NULL"]),
   layers: {
     gates: true,
-    threat: true,
     rifts: false,
     range: true,
     labels: true

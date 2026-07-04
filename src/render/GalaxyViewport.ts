@@ -51,6 +51,7 @@ interface LodState {
 }
 
 type HitMode = "region" | "sector" | "component";
+type ControlIslandId = "top-console";
 type NavcomAssetId =
   | "noise-blue"
   | "noise-red"
@@ -74,7 +75,7 @@ const COMPONENT_LOD_THRESHOLD = 3.8;
 const LOD12_TRANSITION_SPEED = 0.1;
 const REGION_FRAME_SCALE = 1.18;
 const SECTOR_FRAME_SCALE = 2.2;
-const TOP_CONSOLE_RECT = { x: 16, y: 14, width: 520, height: 64 };
+const TOP_CONSOLE_RECT: ControlIslandRect = { x: 16, y: 14, width: 520, height: 64 };
 const NAVCOM_ASSETS: Array<{ alias: NavcomAssetId; src: string }> = [
   { alias: "noise-blue", src: new URL("../assets/navcom/noise-blue.svg", import.meta.url).href },
   { alias: "noise-red", src: new URL("../assets/navcom/noise-red.svg", import.meta.url).href },
@@ -93,11 +94,21 @@ const NAVCOM_ASSETS: Array<{ alias: NavcomAssetId; src: string }> = [
   { alias: "holo-grid", src: new URL("../assets/navcom/holo-grid.svg", import.meta.url).href }
 ];
 
+interface ControlIslandRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface ControlIsland {
-  id: "top-console";
+  id: ControlIslandId;
   element: HTMLDivElement;
+  rect: ControlIslandRect;
   source: HTMLSource;
   sprite: Sprite;
+  transformCorrection: { x: number; y: number };
+  transformCorrectionFrame: number;
 }
 
 type HTMLSourceCanvasWithTransform = HTMLSourceCanvas & {
@@ -144,16 +155,13 @@ export class GalaxyViewport {
   private readonly effects = new Graphics();
   private readonly particlesLayer = new Graphics();
   private readonly resizeObserver: ResizeObserver;
-  private readonly handleCanvasPaint = (): void => this.syncTopConsoleElementTransform();
+  private readonly handleCanvasPaint = (): void => this.syncControlIslandTransforms();
   private readonly camera: Camera = { x: 0, y: 0, scale: 1, targetX: 0, targetY: 0, targetScale: 1 };
   private readonly particles: Particle[] = [];
   private readonly navcomTextures = new Map<NavcomAssetId, Texture>();
-  private controlIsland: ControlIsland | null = null;
+  private readonly controlIslands = new Map<ControlIslandId, ControlIsland>();
   private htmlCanvas: HTMLSourceCanvasWithTransform | null = null;
   private htmlSourceWarning: HTMLDivElement | null = null;
-  private htmlSourceDebug: HTMLTextAreaElement | null = null;
-  private transformCorrectionFrame = 0;
-  private htmlTransformCorrection = { x: 0, y: 0 };
   private state: AppState | null = null;
   private hovered: string | null = null;
   private hoveredEndpoint: string | null = null;
@@ -269,12 +277,9 @@ export class GalaxyViewport {
 
   destroy(): void {
     this.resizeObserver.disconnect();
-    if (this.transformCorrectionFrame) window.cancelAnimationFrame(this.transformCorrectionFrame);
-    this.destroyControlIsland();
+    this.destroyControlIslands();
     this.htmlSourceWarning?.remove();
     this.htmlSourceWarning = null;
-    this.htmlSourceDebug?.remove();
-    this.htmlSourceDebug = null;
     this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true });
   }
 
@@ -309,38 +314,46 @@ export class GalaxyViewport {
     `;
     this.app.canvas.appendChild(element);
 
+    this.registerControlIsland(this.createHtmlControlIsland("top-console", element, TOP_CONSOLE_RECT));
+    this.htmlCanvas.addEventListener("paint", this.handleCanvasPaint);
+    this.layoutTopConsoleIsland();
+    this.controlIslands.get("top-console")?.source.requestPaint();
+  }
+
+  private createHtmlControlIsland(id: ControlIslandId, element: HTMLDivElement, rect: ControlIslandRect): ControlIsland {
     const source = new HTMLSource({
       resource: element,
-      canvas: this.htmlCanvas,
+      canvas: this.htmlCanvas!,
       autoRequestPaint: true
     });
     const sprite = Sprite.from(source);
     sprite.alpha = 0.92;
     this.htmlControlLayer.addChild(sprite);
-    this.controlIsland = { id: "top-console", element, source, sprite };
-    this.createHtmlSourceDebug();
-    this.htmlCanvas.addEventListener("paint", this.handleCanvasPaint);
-    this.layoutTopConsoleIsland();
-    source.requestPaint();
+    return {
+      id,
+      element,
+      rect,
+      source,
+      sprite,
+      transformCorrection: { x: 0, y: 0 },
+      transformCorrectionFrame: 0
+    };
   }
 
-  private destroyControlIsland(): void {
-    if (!this.controlIsland) return;
+  private registerControlIsland(island: ControlIsland): void {
+    this.controlIslands.set(island.id, island);
+  }
+
+  private destroyControlIslands(): void {
     this.htmlCanvas?.removeEventListener("paint", this.handleCanvasPaint);
-    this.htmlControlLayer.removeChild(this.controlIsland.sprite);
-    this.controlIsland.sprite.destroy({ texture: true, textureSource: false });
-    this.controlIsland.source.destroy();
-    this.controlIsland.element.remove();
-    this.controlIsland = null;
-  }
-
-  private createHtmlSourceDebug(): void {
-    const debug = document.createElement("textarea");
-    debug.className = "navcom-htmlsource-debug";
-    debug.readOnly = true;
-    debug.value = "HTMLSource sync pending";
-    this.root.appendChild(debug);
-    this.htmlSourceDebug = debug;
+    for (const island of this.controlIslands.values()) {
+      if (island.transformCorrectionFrame) window.cancelAnimationFrame(island.transformCorrectionFrame);
+      this.htmlControlLayer.removeChild(island.sprite);
+      island.sprite.destroy({ texture: true, textureSource: false });
+      island.source.destroy();
+      island.element.remove();
+    }
+    this.controlIslands.clear();
   }
 
   private showHtmlSourceWarning(): void {
@@ -405,41 +418,44 @@ export class GalaxyViewport {
   }
 
   private layoutTopConsoleIsland(): void {
-    if (!this.controlIsland) return;
-    const islandWidth = TOP_CONSOLE_RECT.width;
-    this.controlIsland.element.style.width = `${islandWidth}px`;
-    this.controlIsland.element.style.height = `${TOP_CONSOLE_RECT.height}px`;
-    this.controlIsland.element.style.transformOrigin = "0 0";
-    this.controlIsland.sprite.position.set(TOP_CONSOLE_RECT.x, TOP_CONSOLE_RECT.y);
-    this.controlIsland.sprite.scale.set(1);
-    this.controlIsland.source.resize(islandWidth, TOP_CONSOLE_RECT.height);
-    this.controlIsland.source.requestPaint();
+    const island = this.controlIslands.get("top-console");
+    if (!island) return;
+    this.layoutControlIsland(island);
   }
 
-  private syncTopConsoleElementTransform(): void {
-    if (!this.controlIsland || !this.htmlCanvas?.getElementTransform) return;
-    const element = this.controlIsland.element;
+  private layoutControlIsland(island: ControlIsland): void {
+    island.element.style.width = `${island.rect.width}px`;
+    island.element.style.height = `${island.rect.height}px`;
+    island.element.style.transformOrigin = "0 0";
+    island.sprite.position.set(island.rect.x, island.rect.y);
+    island.sprite.scale.set(1);
+    island.source.resize(island.rect.width, island.rect.height);
+    island.source.requestPaint();
+  }
+
+  private syncControlIslandTransforms(): void {
+    if (!this.htmlCanvas?.getElementTransform) return;
+    for (const island of this.controlIslands.values()) this.syncControlIslandTransform(island);
+  }
+
+  private syncControlIslandTransform(island: ControlIsland): void {
+    if (!this.htmlCanvas?.getElementTransform) return;
+    const element = island.element;
     element.style.transform = "";
     const elementWidth = Math.max(1, element.offsetWidth);
     const elementHeight = Math.max(1, element.offsetHeight);
-    const bounds = {
-      x: TOP_CONSOLE_RECT.x,
-      y: TOP_CONSOLE_RECT.y,
-      width: TOP_CONSOLE_RECT.width,
-      height: TOP_CONSOLE_RECT.height
-    };
     const screenSpaceTransform = new DOMMatrix()
-      .translate(bounds.x, bounds.y)
+      .translate(island.rect.x, island.rect.y)
       .scale(
-        bounds.width / elementWidth,
-        bounds.height / elementHeight
+        island.rect.width / elementWidth,
+        island.rect.height / elementHeight
       );
     try {
       const computedTransform = this.htmlCanvas.getElementTransform(element, screenSpaceTransform);
       if (computedTransform) {
-        const correctedCssTransform = this.cssMatrixWithCorrection(computedTransform, this.htmlTransformCorrection.x, this.htmlTransformCorrection.y);
+        const correctedCssTransform = this.cssMatrixWithCorrection(computedTransform, island.transformCorrection.x, island.transformCorrection.y);
         element.style.transform = correctedCssTransform;
-        this.scheduleTopConsoleTransformCorrection(computedTransform, bounds, correctedCssTransform);
+        this.scheduleControlIslandTransformCorrection(island, computedTransform);
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "InvalidStateError") return;
@@ -451,39 +467,25 @@ export class GalaxyViewport {
     return `matrix(${transform.a}, ${transform.b}, ${transform.c}, ${transform.d}, ${transform.e + dx}, ${transform.f + dy})`;
   }
 
-  private scheduleTopConsoleTransformCorrection(transform: DOMMatrix, bounds: { x: number; y: number; width: number; height: number }, currentCssTransform: string): void {
-    if (!this.controlIsland) return;
-    if (this.transformCorrectionFrame) window.cancelAnimationFrame(this.transformCorrectionFrame);
-    this.transformCorrectionFrame = window.requestAnimationFrame(() => {
-      this.transformCorrectionFrame = 0;
-      if (!this.controlIsland) return;
+  private scheduleControlIslandTransformCorrection(island: ControlIsland, transform: DOMMatrix): void {
+    if (island.transformCorrectionFrame) window.cancelAnimationFrame(island.transformCorrectionFrame);
+    island.transformCorrectionFrame = window.requestAnimationFrame(() => {
+      island.transformCorrectionFrame = 0;
+      if (!this.controlIslands.has(island.id)) return;
       const canvasRect = this.app.canvas.getBoundingClientRect();
-      const actual = this.controlIsland.element.getBoundingClientRect();
+      const actual = island.element.getBoundingClientRect();
       const expected = {
-        left: canvasRect.left + bounds.x,
-        top: canvasRect.top + bounds.y,
-        width: bounds.width,
-        height: bounds.height
+        left: canvasRect.left + island.rect.x,
+        top: canvasRect.top + island.rect.y,
+        width: island.rect.width,
+        height: island.rect.height
       };
       const residualX = expected.left - actual.left;
       const residualY = expected.top - actual.top;
-      this.htmlTransformCorrection.x += residualX;
-      this.htmlTransformCorrection.y += residualY;
-      const correctedCssTransform = this.cssMatrixWithCorrection(transform, this.htmlTransformCorrection.x, this.htmlTransformCorrection.y);
-      this.controlIsland.element.style.transform = correctedCssTransform;
-      if (this.htmlSourceDebug) {
-        const debugText = [
-          `HTMLSource residual x ${residualX.toFixed(1)} y ${residualY.toFixed(1)}`,
-          `correction x ${this.htmlTransformCorrection.x.toFixed(1)} y ${this.htmlTransformCorrection.y.toFixed(1)}`,
-          `expected ${expected.left.toFixed(1)},${expected.top.toFixed(1)} ${expected.width.toFixed(1)}x${expected.height.toFixed(1)}`,
-          `actual ${actual.left.toFixed(1)},${actual.top.toFixed(1)} ${actual.width.toFixed(1)}x${actual.height.toFixed(1)}`,
-          `offset ${this.controlIsland.element.offsetWidth}x${this.controlIsland.element.offsetHeight}`,
-          `paintTransform ${currentCssTransform}`,
-          `transform ${correctedCssTransform}`
-        ].join(" / ");
-        this.htmlSourceDebug.value = debugText;
-        console.info(debugText);
-      }
+      island.transformCorrection.x += residualX;
+      island.transformCorrection.y += residualY;
+      const correctedCssTransform = this.cssMatrixWithCorrection(transform, island.transformCorrection.x, island.transformCorrection.y);
+      island.element.style.transform = correctedCssTransform;
     });
   }
 

@@ -79,7 +79,7 @@ Acceptance:
 
 ## Phase 2: HTML Island Host
 
-Status: proof started. A single `top-console` canvas child is created and rendered through `HTMLSource` as the first capability test.
+Status: proof stabilized. A single `top-console` canvas child is created and rendered through `HTMLSource`; hit testing, input clicks, and text drag-selection are stable. The temporary debug readout has been removed, and `GalaxyViewport` now has reusable per-island host plumbing for rects, source/sprite cleanup, transform correction, and control-event guarding.
 
 Goal: create the bridge that lets React render controls as direct canvas children and Pixi consume them through `HTMLSource`.
 
@@ -300,9 +300,10 @@ The first code slice should be intentionally narrow:
 - [x] Rename or reorganize the current Pixi layers into the planned layer stack.
 - [x] Add a single `top-console` canvas child.
 - [x] Wrap that island with `HTMLSource` and display it inside `htmlControlLayer`.
-- [x] Verify cleanup, build, and tests.
+- [x] Verify repaint, focus, click, drag-selection, cleanup, build, and tests.
+- [x] Refactor the proof into reusable per-island host plumbing.
 - [ ] Replace the temporary DOM proof island with a React-rendered island.
-- [ ] Verify repaint, focus, click, and one screenshot during manual QA.
+- [ ] Verify one screenshot during manual QA.
 
 This proves the risky technology path before moving every control.
 

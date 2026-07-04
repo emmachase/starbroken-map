@@ -354,6 +354,22 @@ select {
   white-space: nowrap;
 }
 
+.navcom-top-console-island .island-status {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.navcom-top-console-island .island-status span:first-child {
+  color: var(--zone);
+}
+
 .navcom-top-console-island .island-input {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

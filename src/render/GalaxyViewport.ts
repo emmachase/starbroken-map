@@ -11,6 +11,7 @@ interface GalaxyViewportOptions {
   onSelect: (coord: string) => void;
   onSetOrigin: (coord: string) => void;
   onSetDestination: (coord: string) => void;
+  onControlHost?: (id: ControlIslandId, element: HTMLDivElement | null) => void;
 }
 
 interface Layout {
@@ -127,6 +128,7 @@ export class GalaxyViewport {
   private readonly onSelect: (coord: string) => void;
   private readonly onSetOrigin: (coord: string) => void;
   private readonly onSetDestination: (coord: string) => void;
+  private readonly onControlHost?: (id: ControlIslandId, element: HTMLDivElement | null) => void;
   private readonly app = new Application();
   private readonly screenRoot = new Container();
   private readonly starfieldLayer = new Container();
@@ -187,6 +189,7 @@ export class GalaxyViewport {
     this.onSelect = options.onSelect;
     this.onSetOrigin = options.onSetOrigin;
     this.onSetDestination = options.onSetDestination;
+    this.onControlHost = options.onControlHost;
     this.resizeObserver = new ResizeObserver(() => this.resize());
   }
 
@@ -250,6 +253,14 @@ export class GalaxyViewport {
     this.renderedSelected = state.selected;
   }
 
+  requestControlPaint(id?: ControlIslandId): void {
+    if (id) {
+      this.controlIslands.get(id)?.source.requestPaint();
+      return;
+    }
+    for (const island of this.controlIslands.values()) island.source.requestPaint();
+  }
+
   focusSelected(immediate = false): void {
     if (!this.state) return;
     const endpoint = endpointById.get(this.state.selected);
@@ -304,17 +315,10 @@ export class GalaxyViewport {
     const element = document.createElement("div");
     element.className = "navcom-canvas-island navcom-top-console-island";
     element.dataset.island = "top-console";
-    element.innerHTML = `
-      <div class="island-kicker">HTMLSOURCE LINK</div>
-      <div class="island-title">TOP CONSOLE / LIVE CONTROL PROOF</div>
-      <label class="island-input">
-        <span>Ping</span>
-        <input value="editable signal" aria-label="HTMLSource proof input" />
-      </label>
-    `;
     this.app.canvas.appendChild(element);
 
     this.registerControlIsland(this.createHtmlControlIsland("top-console", element, TOP_CONSOLE_RECT));
+    this.onControlHost?.("top-console", element);
     this.htmlCanvas.addEventListener("paint", this.handleCanvasPaint);
     this.layoutTopConsoleIsland();
     this.controlIslands.get("top-console")?.source.requestPaint();
@@ -347,6 +351,7 @@ export class GalaxyViewport {
   private destroyControlIslands(): void {
     this.htmlCanvas?.removeEventListener("paint", this.handleCanvasPaint);
     for (const island of this.controlIslands.values()) {
+      this.onControlHost?.(island.id, null);
       if (island.transformCorrectionFrame) window.cancelAnimationFrame(island.transformCorrectionFrame);
       this.htmlControlLayer.removeChild(island.sprite);
       island.sprite.destroy({ texture: true, textureSource: false });

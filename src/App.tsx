@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import {
   byCoord,
@@ -220,7 +221,7 @@ function App() {
       <main className="shell">
         <JumpPlotter state={state} patchState={patchState} onSelect={patchState} onEndpoint={setRouteEndpoint} />
         <section className="viewport-wrap">
-          <GalaxyMap state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
+          <GalaxyMap state={state} patchState={patchState} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
           <div className="toast" style={{ opacity: toastVisible ? 1 : 0 }}>{toast}</div>
         </section>
         <DetailsPanel state={state} onSelect={(selected) => patchState({ selected })} onEndpoint={setRouteEndpoint} />
@@ -543,9 +544,20 @@ function RouteStepCard({ step, index, onSelect }: { step: RouteStep; index: numb
   );
 }
 
-function GalaxyMap({ state, onSelect, onEndpoint }: { state: AppState; onSelect: (selected: string) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void }) {
+function GalaxyMap({
+  state,
+  patchState,
+  onSelect,
+  onEndpoint
+}: {
+  state: AppState;
+  patchState: (patch: Partial<AppState>) => void;
+  onSelect: (selected: string) => void;
+  onEndpoint: (kind: "origin" | "destination", coord: string) => void;
+}) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<GalaxyViewport | null>(null);
+  const [topConsoleHost, setTopConsoleHost] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -557,7 +569,10 @@ function GalaxyMap({ state, onSelect, onEndpoint }: { state: AppState; onSelect:
       root,
       onSelect,
       onSetOrigin: (coord) => onEndpoint("origin", coord),
-      onSetDestination: (coord) => onEndpoint("destination", coord)
+      onSetDestination: (coord) => onEndpoint("destination", coord),
+      onControlHost: (id, element) => {
+        if (id === "top-console") setTopConsoleHost(element);
+      }
     });
     viewportRef.current = viewport;
     viewport.init().then(() => {
@@ -575,6 +590,7 @@ function GalaxyMap({ state, onSelect, onEndpoint }: { state: AppState; onSelect:
       disposed = true;
       if (initialized) viewport.destroy();
       viewportRef.current = null;
+      setTopConsoleHost(null);
     };
   }, []);
 
@@ -582,7 +598,50 @@ function GalaxyMap({ state, onSelect, onEndpoint }: { state: AppState; onSelect:
     viewportRef.current?.setState(state);
   }, [state]);
 
-  return <div ref={rootRef} className="galaxy-viewport" aria-label="Starbroken galaxy map"></div>;
+  useEffect(() => {
+    viewportRef.current?.requestControlPaint("top-console");
+  }, [state, topConsoleHost]);
+
+  return (
+    <div ref={rootRef} className="galaxy-viewport" aria-label="Starbroken galaxy map">
+      {topConsoleHost ? createPortal(
+        <TopConsoleIsland state={state} onSearchChange={(search) => patchState({ search })} />,
+        topConsoleHost
+      ) : null}
+    </div>
+  );
+}
+
+function TopConsoleIsland({ state, onSearchChange }: { state: AppState; onSearchChange: (search: string) => void }) {
+  const selected = endpointById.get(state.selected) ?? byCoord.get(state.selected);
+  const selectedLabel = selected
+    ? "label" in selected
+      ? selected.label
+      : `${selected.coord} - ${selected.name}`
+    : state.selected;
+
+  return (
+    <>
+      <div>
+        <div className="island-kicker">NAVCOM / {profiles[state.profile].label}</div>
+        <div className="island-title">{endpointText(state.origin)} -&gt; {endpointText(state.destination)}</div>
+        <div className={`island-status ${state.routeInfo.nulls ? "null" : state.routeInfo.frontier ? "frontier" : "core"}`}>
+          <span>{riskLabel(state)}</span>
+          <span>{state.route.length ? `${state.route.length - 1} steps` : "no route"}</span>
+          <span>{selectedLabel}</span>
+        </div>
+      </div>
+      <label className="island-input">
+        <span>Scan</span>
+        <input
+          value={state.search}
+          aria-label="Signal scan"
+          placeholder="A1, Halcyon, NULL..."
+          onChange={(event) => onSearchChange(event.target.value)}
+        />
+      </label>
+    </>
+  );
 }
 
 function DetailsPanel({ state, onSelect, onEndpoint }: { state: AppState; onSelect: (selected: string) => void; onEndpoint: (kind: "origin" | "destination", coord: string) => void }) {

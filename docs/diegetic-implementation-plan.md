@@ -48,7 +48,7 @@ Acceptance:
 
 ## Phase 1: Pixi Shell Refactor
 
-Status: in progress. The layer skeleton, asset preload pass, display material sprites, control chrome, alert interference, route spark layer, and responsive island rect pass are implemented in `src/render/GalaxyViewport.ts`.
+Status: in progress. The layer skeleton, asset preload pass, display material sprites, alert interference, route spark layer, map reticle layer, and responsive island rect pass are implemented in `src/render/GalaxyViewport.ts`.
 
 Goal: make `GalaxyViewport` the top-level visual compositor for NAVCOM.
 
@@ -61,7 +61,6 @@ Tasks:
   - `mapRouteLayer`
   - `mapSensorFxLayer`
   - `htmlControlLayer`
-  - `controlFxLayer`
   - `glassOverlayLayer`
   - `alertInterferenceLayer`
   - `cursorReticleLayer`
@@ -172,10 +171,10 @@ Goal: make HTML controls feel physically integrated into the display.
 
 Tasks:
 
-- Add cyan edge bloom from `panel-edge-gradient.svg`.
-- Add corner brackets from `bracket-corner.svg` to active panels and selected controls.
+- Keep the HTML island notched panel silhouette as the sole control-surface frame language.
+- Do not add Pixi-drawn rectangular island frames or corner accents over controls unless replacing the CSS panel language.
 - Add low-alpha scanlines from `scanline-mask.svg`.
-- Add panel grid interiors from `holo-grid.svg` where they do not hurt readability.
+- Do not use `holo-grid.svg` inside the HTML panel material; the map grid already provides enough structure and panel grids hurt readability.
 - Reserve alert rail hatches for framed warning rails outside dense data regions:
   - `warning-stripe.svg` for general warnings.
   - `critical-stripe.svg` for NULL exposure, failed routes, hard alarms.
@@ -198,8 +197,8 @@ Goal: add the full-display material pass without muddying gameplay information.
 Tasks:
 
 - Add blue noise at low opacity.
-- Add glass smudge under 6% opacity for normal state.
-- Add subtle vignette and reflection bands.
+- Add low-alpha glass smudge texture for normal state.
+- Use subtle edge vignette only; do not add rectangular global reflection bands.
 - Add optional chromatic edge hints around the display boundary.
 - Add red noise and alert interference only during warning states.
 - Add brief sync-loss or jitter states for failed route and NULL exposure.
@@ -313,10 +312,13 @@ The first code slice should be intentionally narrow:
 - [x] Restore command search behavior inside `top-console`.
 - [x] Move route steps into a compact bottom timeline.
 - [x] Add inspector tabs for progressive disclosure.
-- [x] Add Pixi control chrome, corner brackets, low-alpha display material, and warning interference.
+- [x] Keep control framing in the notched HTML island language and remove clashing Pixi control chrome/corner overlays.
+- [x] Remove panel-grid material from HTML islands after in-scene QA showed it competed with text.
+- [x] Add low-alpha display material and warning interference.
 - [x] Apply split alert stripe assets through falloff masks only where a warning rail has enough empty frame space.
 - [x] Keep warning stripes out of dense controls such as the bottom route timeline; alert state there is carried by chrome and low-alpha interference.
 - [x] Replace route packet circles with pooled `spark-dot` sprites and add route commit/gate pulse feedback.
+- [x] Add `reticle-ping` selection/hover sprites and `ring-soft` range sensor feedback.
 - [x] Add breakpoint-aware island rects and compact stacked mobile canvas height.
 - [x] Remove stale DOM shell CSS from the old topbar/route strip layout.
 - [x] Re-run `npm run build` and `npm test -- --run` after each route/layer/vector/inspector/toast/topbar removal/search/disclosure move.

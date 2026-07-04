@@ -93,11 +93,10 @@ scene
 
 ```text
 HTMLSource sprite
-  + subtle tint/color matrix
-  + edge gradient sprites
-  + corner brackets
+  + notched HTML/CSS panel silhouette
+  + subtle panel tint and grid texture where readable
   + scanline overlay
-  + optional warning hatch through stripe falloff mask
+  + warning color carried by panel text/chrome, not over timeline data
 ```
 
 ### Route Solution
@@ -108,6 +107,8 @@ route base line
   + gate pulse on gate edges
   + route commit flash
   + failed branch ghosting during recalculation
+  + reticle-ping hover/selection marks
+  + ring-soft range feedback
 ```
 
 ### Hostile Space

@@ -64,18 +64,10 @@ type NavcomAssetId =
   | "noise-blue"
   | "noise-red"
   | "scanline-mask"
-  | "panel-edge-gradient"
-  | "warning-stripe"
-  | "critical-stripe"
-  | "caution-stripe"
-  | "stripe-falloff-horizontal"
-  | "stripe-falloff-vertical"
   | "spark-dot"
   | "ring-soft"
   | "glass-smudge"
-  | "bracket-corner"
-  | "reticle-ping"
-  | "holo-grid";
+  | "reticle-ping";
 
 const MAX_ZOOM = 100;
 const SECTOR_LOD_THRESHOLD = 1.4;
@@ -94,18 +86,10 @@ const NAVCOM_ASSETS: Array<{ alias: NavcomAssetId; src: string }> = [
   { alias: "noise-blue", src: new URL("../assets/navcom/noise-blue.svg", import.meta.url).href },
   { alias: "noise-red", src: new URL("../assets/navcom/noise-red.svg", import.meta.url).href },
   { alias: "scanline-mask", src: new URL("../assets/navcom/scanline-mask.svg", import.meta.url).href },
-  { alias: "panel-edge-gradient", src: new URL("../assets/navcom/panel-edge-gradient.svg", import.meta.url).href },
-  { alias: "warning-stripe", src: new URL("../assets/navcom/warning-stripe.svg", import.meta.url).href },
-  { alias: "critical-stripe", src: new URL("../assets/navcom/critical-stripe.svg", import.meta.url).href },
-  { alias: "caution-stripe", src: new URL("../assets/navcom/caution-stripe.svg", import.meta.url).href },
-  { alias: "stripe-falloff-horizontal", src: new URL("../assets/navcom/stripe-falloff-horizontal.svg", import.meta.url).href },
-  { alias: "stripe-falloff-vertical", src: new URL("../assets/navcom/stripe-falloff-vertical.svg", import.meta.url).href },
   { alias: "spark-dot", src: new URL("../assets/navcom/spark-dot.svg", import.meta.url).href },
   { alias: "ring-soft", src: new URL("../assets/navcom/ring-soft.svg", import.meta.url).href },
   { alias: "glass-smudge", src: new URL("../assets/navcom/glass-smudge.svg", import.meta.url).href },
-  { alias: "bracket-corner", src: new URL("../assets/navcom/bracket-corner.svg", import.meta.url).href },
-  { alias: "reticle-ping", src: new URL("../assets/navcom/reticle-ping.svg", import.meta.url).href },
-  { alias: "holo-grid", src: new URL("../assets/navcom/holo-grid.svg", import.meta.url).href }
+  { alias: "reticle-ping", src: new URL("../assets/navcom/reticle-ping.svg", import.meta.url).href }
 ];
 
 interface ControlIslandRect {
@@ -170,6 +154,7 @@ export class GalaxyViewport {
   private readonly sectorRegionLabels = new Container();
   private readonly sectorLabels = new Container();
   private readonly effects = new Graphics();
+  private readonly mapReticleLayer = new Container();
   private readonly routeSparkLayer = new Container();
   private readonly particlesLayer = new Graphics();
   private readonly resizeObserver: ResizeObserver;
@@ -180,6 +165,9 @@ export class GalaxyViewport {
   private readonly controlIslands = new Map<ControlIslandId, ControlIsland>();
   private readonly expandedControlIslands = new Set<ControlIslandId>();
   private readonly routeSparkSprites: Sprite[] = [];
+  private selectedReticleSprite: Sprite | null = null;
+  private hoverReticleSprite: Sprite | null = null;
+  private rangeRingSprite: Sprite | null = null;
   private blueNoiseSprite: TilingSprite | null = null;
   private redNoiseSprite: TilingSprite | null = null;
   private scanlineSprite: TilingSprite | null = null;
@@ -243,6 +231,7 @@ export class GalaxyViewport {
       this.sectorRegionLabels,
       this.sectorLabels,
       this.effects,
+      this.mapReticleLayer,
       this.routeSparkLayer,
       this.particlesLayer
     );
@@ -693,6 +682,12 @@ export class GalaxyViewport {
     this.glassTint.clear();
     this.glassTint.rect(0, 0, width, height).stroke({ color: 0x71d5ff, alpha: 0.1, width: 2 });
     this.glassTint.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.018 });
+    this.glassTint.rect(0, 0, width, Math.max(18, height * 0.035)).fill({ color: 0x000000, alpha: 0.055 });
+    this.glassTint.rect(0, height - Math.max(22, height * 0.045), width, Math.max(22, height * 0.045)).fill({ color: 0x000000, alpha: 0.07 });
+    this.glassTint.rect(0, 0, Math.max(18, width * 0.025), height).fill({ color: 0x000000, alpha: 0.052 });
+    this.glassTint.rect(width - Math.max(18, width * 0.025), 0, Math.max(18, width * 0.025), height).fill({ color: 0x000000, alpha: 0.052 });
+    this.glassTint.rect(1, 1, 1, height - 2).fill({ color: 0xff5571, alpha: 0.035 });
+    this.glassTint.rect(width - 2, 1, 1, height - 2).fill({ color: 0x71d5ff, alpha: 0.05 });
   }
 
   private updateDisplayEffects(): void {
@@ -1220,6 +1215,8 @@ export class GalaxyViewport {
       if (selected && hitMode === "region" && overlayAlpha > 0) this.drawGlow(selected, zoneColors[selected.zone], (0.28 + pulse * 0.3) * overlayAlpha, this.worldWidth(3));
     }
 
+    this.updateSensorSprites(state, pulse, hitMode);
+
     if (state.layers.rifts) {
       for (const region of regions.filter((item) => item.zone === "FRONTIER" || item.zone === "NULL")) {
         const point = this.pointFor(region);
@@ -1247,6 +1244,95 @@ export class GalaxyViewport {
     } else {
       this.hideUnusedRouteSparks(0);
     }
+  }
+
+  private updateSensorSprites(state: AppState, pulse: number, hitMode: HitMode): void {
+    const selectedPoint = this.pointForSelection(state.selected, hitMode);
+    const selectedRegion = this.regionForSelection(state.selected);
+    const selectedColor = selectedRegion ? zoneColors[selectedRegion.zone] : 0xc49cff;
+    const hoveredId = this.hoveredEndpoint ?? this.hovered;
+    const hoverPoint = hoveredId ? this.pointForSelection(hoveredId, hitMode) : null;
+    const hoverRegion = hoveredId ? this.regionForSelection(hoveredId) : null;
+    const hoverColor = hoverRegion ? zoneColors[hoverRegion.zone] : 0x71d5ff;
+
+    this.updateReticleSprite("selected", selectedPoint, selectedColor, 0.42 + pulse * 0.22, 58 + pulse * 10);
+    this.updateReticleSprite("hover", hoverPoint, hoverColor, 0.24 + pulse * 0.2, 46 + pulse * 8);
+    this.updateRangeRingSprite(state, selectedPoint, selectedColor);
+  }
+
+  private pointForSelection(id: string, hitMode: HitMode): { x: number; y: number } | null {
+    const endpoint = endpointById.get(id);
+    if (endpoint) {
+      const region = byCoord.get(endpoint.region);
+      if (!region) return null;
+      if (endpoint.kind === "sector") {
+        if (hitMode !== "sector") return this.pointFor(region);
+        const sector = region.sectors.find((item) => item.id === endpoint.sector);
+        return sector ? this.pointForCoords(sector.centerX, sector.centerZ) : null;
+      }
+      return this.pointForCoords(endpoint.x, endpoint.z);
+    }
+    const region = byCoord.get(id);
+    return region ? this.pointFor(region) : null;
+  }
+
+  private regionForSelection(id: string): Region | undefined {
+    const endpoint = endpointById.get(id);
+    return endpoint ? byCoord.get(endpoint.region) : byCoord.get(id);
+  }
+
+  private updateReticleSprite(kind: "selected" | "hover", point: { x: number; y: number } | null, color: number, alpha: number, screenSize: number): void {
+    const texture = this.navcomTextures.get("reticle-ping");
+    const sprite = kind === "selected" ? this.selectedReticleSprite : this.hoverReticleSprite;
+    if (!texture || !point) {
+      if (sprite) sprite.visible = false;
+      return;
+    }
+
+    const reticle = sprite ?? this.createReticleSprite(texture);
+    if (kind === "selected") this.selectedReticleSprite = reticle;
+    else this.hoverReticleSprite = reticle;
+
+    const size = this.worldWidth(screenSize);
+    reticle.visible = true;
+    reticle.position.set(point.x, point.y);
+    reticle.width = size;
+    reticle.height = size;
+    reticle.rotation = kind === "selected" ? this.routePhase * 0.12 : -this.routePhase * 0.18;
+    reticle.tint = color;
+    reticle.alpha = alpha;
+  }
+
+  private createReticleSprite(texture: Texture): Sprite {
+    const sprite = new Sprite({ texture });
+    sprite.anchor.set(0.5);
+    sprite.blendMode = "add";
+    this.mapReticleLayer.addChild(sprite);
+    return sprite;
+  }
+
+  private updateRangeRingSprite(state: AppState, point: { x: number; y: number } | null, color: number): void {
+    const texture = this.navcomTextures.get("ring-soft");
+    if (!texture || !point || !state.layers.range || !state.useRange || state.driveTier >= 5) {
+      if (this.rangeRingSprite) this.rangeRingSprite.visible = false;
+      return;
+    }
+
+    if (!this.rangeRingSprite) {
+      this.rangeRingSprite = new Sprite({ texture });
+      this.rangeRingSprite.anchor.set(0.5);
+      this.rangeRingSprite.blendMode = "add";
+      this.mapReticleLayer.addChildAt(this.rangeRingSprite, 0);
+    }
+
+    const range = state.driveTier === 4 ? 5 : state.driveTier;
+    const size = Math.max(this.layout.cell * (range * 2 + 1.25), this.worldWidth(84));
+    this.rangeRingSprite.visible = true;
+    this.rangeRingSprite.position.set(point.x, point.y);
+    this.rangeRingSprite.width = size;
+    this.rangeRingSprite.height = size;
+    this.rangeRingSprite.tint = color;
+    this.rangeRingSprite.alpha = 0.13 + Math.sin(this.routePhase * 1.2) * 0.025;
   }
 
   private drawRouteSpark(index: number, x: number, y: number, color: number): number {

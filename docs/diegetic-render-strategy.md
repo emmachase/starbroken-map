@@ -24,7 +24,6 @@ Application.stage
     mapRouteLayer
     mapSensorFxLayer
     htmlControlLayer
-    controlFxLayer
     glassOverlayLayer
     alertInterferenceLayer
     cursorReticleLayer
@@ -59,15 +58,14 @@ Live HTML islands rendered via `HTMLSource`. Each major control region is one te
 Initial islands:
 
 - `top-console`
+- `search-popover`
 - `bottom-route-command`
 - `left-vector-drawer`
 - `right-signal-inspector`
 - `layer-dock`
 - `toast-console`
 
-### controlFxLayer
-
-Pixi-native decorative and responsive effects attached to control surfaces: edge bloom, corner brackets, power pips, panel activation flashes, warning glints.
+HTML islands own their own notched panel silhouette, background, and focus states. Pixi should not draw extra rectangular frames or corner accents over them unless a future treatment replaces the island's CSS panel language entirely.
 
 ### glassOverlayLayer
 
@@ -131,6 +129,5 @@ Request repaint only when useful.
 1. Move visible React UI into direct canvas child islands.
 2. Create `HTMLSource` textures for top, bottom, left drawer, right inspector, layer dock, and toast.
 3. Recompose layout inside Pixi using current viewport dimensions.
-4. Add glass overlay and control edge bloom.
+4. Add glass overlay and map-native sensor feedback.
 5. Keep current map behavior intact while changing only presentation.
-

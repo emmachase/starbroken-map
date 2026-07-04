@@ -10,7 +10,7 @@ Run date: 2026-07-04
 - HTML-in-canvas support detected:
   - `canvas.requestPaint`: yes.
   - `canvas.getElementTransform`: yes.
-  - Canvas child islands: 6.
+  - Canvas child islands: 7.
 
 ## Screenshots
 
@@ -25,6 +25,10 @@ Captured under `docs/qa-shots/`:
 - `desktop-search-popover-separate-island.png`
 - `desktop-drawers-tabs-route-after-tuning.png`
 - `desktop-collapsed-tight-tabs-final.png`
+- `desktop-sensor-reticle-range-default.png`
+- `desktop-inspector-flush-right-layer-bottom.png`
+- `desktop-clean-panel-glass-material.png`
+- `desktop-clean-focus-visible.png`
 - `mobile-default-collapsed.png`
 - `mobile-expanded.png`
 
@@ -45,6 +49,11 @@ Captured under `docs/qa-shots/`:
 - Regression check: top search results render as a separate popover island while the top console remains 64px tall.
 - Regression check: collapsed vector/intel tabs render at 38x78 with labels still readable.
 - Regression check: bottom route command is 138px tall and timeline steps no longer crowd the metric row.
+- Regression check: `reticle-ping` and `ring-soft` map sensor sprites render in world space with no page errors.
+- Regression check: signal inspector is flush to the right edge while the layer dock sits in the lower-right utility area.
+- Regression check: START/END endpoint labels and their badge backgrounds no longer render.
+- Regression check: panel material no longer uses `holo-grid`; focus-visible styling remains strong on keyboard focus.
+- Regression check: rectangular global reflection bands have been removed; glass material is carried by smudge, edge tint, and subtle vignette.
 
 ## Performance Probe
 

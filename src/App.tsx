@@ -140,15 +140,6 @@ function App() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">NAV</div>
-          <div>
-            <h1>STARBROKEN // NAVCOM</h1>
-            <div className="subtitle">Jump plotting / gate lanes / threat overlays</div>
-          </div>
-        </div>
-      </header>
 
       <main className="shell">
         <section className="viewport-wrap">

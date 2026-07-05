@@ -442,7 +442,7 @@ export class GalaxyViewport {
     this.destroyControlIslands();
     this.htmlSourceWarning?.remove();
     this.htmlSourceWarning = null;
-    this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true });
+    this.app.destroy({ removeView: true }, { children: true, texture: false, textureSource: false });
   }
 
   private async loadNavcomAssets(): Promise<void> {
